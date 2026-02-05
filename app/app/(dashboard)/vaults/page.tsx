@@ -62,23 +62,23 @@ function VaultCard({
   onDelete: (vault: Vault) => void;
 }) {
   return (
-    <Card className="group relative overflow-hidden p-4 transition-shadow hover:shadow-md">
+    <Card className="group relative overflow-hidden p-4 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5">
       {/* Folder Icon */}
       <div className="mb-4 flex justify-center">
         <div className="relative h-32 w-40">
           {/* Folder back */}
-          <div className="absolute inset-x-0 top-4 h-28 rounded-lg bg-gradient-to-b from-violet-400 to-violet-500" />
+          <div className="absolute inset-x-0 top-4 h-28 rounded-xl bg-gradient-to-b from-[#412bcf] to-[#3623a8] shadow-sm" />
           {/* Folder tab */}
-          <div className="absolute left-0 top-0 h-6 w-16 rounded-t-lg bg-violet-400" />
+          <div className="absolute left-0 top-0 h-6 w-16 rounded-t-xl bg-[#412bcf]" />
           {/* Folder front */}
-          <div className="absolute inset-x-0 top-8 h-24 rounded-lg bg-gradient-to-b from-violet-300 to-violet-400" />
+          <div className="absolute inset-x-0 top-8 h-24 rounded-xl bg-gradient-to-b from-[#6b5cd9] to-[#412bcf] shadow-inner" />
 
           {/* Provider icons at bottom */}
-          <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">
+          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
             <ProviderIcon provider="gmail" />
             <ProviderIcon provider="notion" />
             {vault.document_count && vault.document_count > 2 && (
-              <div className="flex h-5 items-center rounded-full bg-gray-200 px-1.5 text-[10px] font-medium text-gray-600">
+              <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-600 shadow-sm">
                 +{vault.document_count - 2}
               </div>
             )}
@@ -261,7 +261,7 @@ export default function VaultsPage() {
 
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-emerald-600 hover:bg-emerald-700">
+            <Button className="bg-[#412bcf] hover:bg-[#3623a8]">
               <Plus className="mr-2 h-4 w-4" />
               New
             </Button>

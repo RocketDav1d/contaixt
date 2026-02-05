@@ -262,7 +262,7 @@ export default function IntegrationsPage() {
 
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-emerald-600 hover:bg-emerald-700">
+            <Button className="bg-[#412bcf] hover:bg-[#3623a8]">
               <Plus className="mr-2 h-4 w-4" />
               Add integration
             </Button>
@@ -404,7 +404,7 @@ export default function IntegrationsPage() {
                         }
                         className={
                           connection.status === "active"
-                            ? "bg-emerald-100 text-emerald-700"
+                            ? "bg-[#412bcf]/10 text-[#412bcf]"
                             : ""
                         }
                       >
