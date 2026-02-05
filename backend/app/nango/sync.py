@@ -21,19 +21,19 @@ PROVIDER_TO_SOURCE = {
 async def resolve_workspace_and_connection(
     nango_connection_id: str,
     provider_config_key: str,
-) -> uuid.UUID | None:
-    """Look up the workspace_id for a given Nango connection."""
+) -> tuple[uuid.UUID, uuid.UUID] | tuple[None, None]:
+    """Look up the (workspace_id, vault_id) for a given Nango connection."""
     source_type = PROVIDER_TO_SOURCE.get(provider_config_key)
     if not source_type:
-        return None
+        return None, None
 
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(
-            select(SourceConnection.workspace_id).where(
+            select(SourceConnection.workspace_id, SourceConnection.vault_id).where(
                 SourceConnection.nango_connection_id == nango_connection_id,
                 SourceConnection.source_type == source_type,
             )
         )
         row = result.first()
-        return row.workspace_id if row else None
+        return (row.workspace_id, row.vault_id) if row else (None, None)

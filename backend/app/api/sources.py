@@ -10,11 +10,11 @@ from pydantic import BaseModel
 from sqlalchemy import insert, select
 
 from app.db import get_async_session
+from app.api.ingest import IngestDocumentRequest, _resolve_default_vault, ingest_document
 from app.models import SourceConnection, SourceType
 from app.nango.client import list_records
 from app.nango.content import fetch_notion_content_map
 from app.nango.normalizers import NORMALIZERS, normalize_notion
-from app.api.ingest import ingest_document, IngestDocumentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ DEFAULT_MODELS = {
 
 class RegisterConnectionRequest(BaseModel):
     workspace_id: uuid.UUID
+    vault_id: uuid.UUID | None = None  # None = use default vault
     source_type: SourceType
     nango_connection_id: str
     external_account_id: str | None = None
@@ -43,12 +44,14 @@ class RegisterConnectionRequest(BaseModel):
 class RegisterConnectionResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
+    vault_id: uuid.UUID
     source_type: SourceType
     nango_connection_id: str
 
 
 @router.post("/nango/register", response_model=RegisterConnectionResponse, status_code=201)
 async def register_connection(body: RegisterConnectionRequest):
+    vault_id = body.vault_id or await _resolve_default_vault(body.workspace_id)
     Session = get_async_session()
     conn_id = uuid.uuid4()
     async with Session() as session:
@@ -56,6 +59,7 @@ async def register_connection(body: RegisterConnectionRequest):
             insert(SourceConnection).values(
                 id=conn_id,
                 workspace_id=body.workspace_id,
+                vault_id=vault_id,
                 source_type=body.source_type,
                 nango_connection_id=body.nango_connection_id,
                 external_account_id=body.external_account_id,
@@ -65,6 +69,7 @@ async def register_connection(body: RegisterConnectionRequest):
     return RegisterConnectionResponse(
         id=conn_id,
         workspace_id=body.workspace_id,
+        vault_id=vault_id,
         source_type=body.source_type,
         nango_connection_id=body.nango_connection_id,
     )
@@ -135,11 +140,13 @@ async def backfill(source_type: SourceType, workspace_id: uuid.UUID):
         normalizer = NORMALIZERS[provider_key]
         docs = normalizer(records)
 
+    vault_id = conn.vault_id
+
     ingested = 0
     for doc in docs:
         if not doc.get("content_text"):
             continue
-        await ingest_document(IngestDocumentRequest(workspace_id=workspace_id, **doc))
+        await ingest_document(IngestDocumentRequest(workspace_id=workspace_id, vault_id=vault_id, **doc))
         ingested += 1
 
     logger.info("Backfill: ingested %d documents", ingested)

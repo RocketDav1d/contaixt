@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import insert, select
 
 from app.db import get_async_session
-from app.models import Workspace
+from app.models import ContextVault, Workspace
 
 router = APIRouter(prefix="/v1/workspaces", tags=["workspaces"])
 
@@ -26,6 +26,15 @@ async def create_workspace(body: WorkspaceCreate):
     async with Session() as session:
         await session.execute(
             insert(Workspace).values(id=ws_id, name=body.name)
+        )
+        # Auto-create Default vault
+        await session.execute(
+            insert(ContextVault).values(
+                id=uuid.uuid4(),
+                workspace_id=ws_id,
+                name="Default",
+                is_default=True,
+            )
         )
         await session.commit()
     return WorkspaceOut(id=ws_id, name=body.name)

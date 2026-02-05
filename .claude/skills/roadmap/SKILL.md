@@ -282,7 +282,56 @@ Cypher pattern:
 
 ---
 
-# “Day-by-day” Reihenfolge (schnellster Pfad)
+## 9) Context Vaults (Datenpartitionierung)
+
+> Workspace = Mandant (Firma/Team). Context Vault = Datenpartition innerhalb eines Workspace.
+> Beispiel: Workspace "Acme Corp" hat Vaults "Sales", "Engineering", "Operations".
+> Jede Datenquelle wird einem Vault zugeordnet. Queries können auf einzelne Vaults eingeschränkt werden.
+
+**B9.1 – Context Vault Schema + Migration**
+
+* Neue Tabelle `context_vaults(id, workspace_id, name, description, is_default, created_at, updated_at)`
+* `vault_id` (NOT NULL) auf: `source_connections`, `documents`, `document_chunks`, `entity_mentions`
+* NICHT auf `jobs` (vault transitiv via document_id)
+* Unique Constraint documents: `(workspace_id, vault_id, source_type, external_id)`
+* Migration: Default Vault pro Workspace + Backfill aller bestehenden Rows
+  **Done:** Datenmodell unterstützt Vault-Partitionierung.
+
+**B9.2 – Vault CRUD API**
+
+* `POST /v1/vaults` – Vault erstellen
+* `GET /v1/vaults?workspace_id=` – Vaults auflisten
+* `PATCH /v1/vaults/{vault_id}` – Update Name/Description
+* `DELETE /v1/vaults/{vault_id}` – Nur wenn leer, nie Default
+* `POST /v1/workspaces` erstellt automatisch Default Vault
+  **Done:** Vaults verwaltbar.
+
+**B9.3 – Vault Flow im Ingest-Pfad**
+
+* `POST /v1/ingest/document` bekommt optionales `vault_id` (Default falls leer)
+* `POST /v1/sources/nango/register` bekommt optionales `vault_id`
+* Backfill + Webhooks: vault_id von SourceConnection erben
+* Processing Pipeline: vault_id propagiert von Document → Chunks, EntityMentions, Graph Upsert
+  **Done:** Daten landen im richtigen Vault.
+
+**B9.4 – Neo4j Vault Isolation**
+
+* Entity-Nodes (Person/Company/Topic): KEIN vault_id (workspace-global, gleiche Person existiert einmal)
+* Document-Nodes: vault_id als Property
+* Alle Edges (MENTIONS, WORKS_AT, etc.): vault_id als Property
+* Traversal filtert auf Edge-Ebene
+  **Done:** Graph-Traversal respektiert Vault-Grenzen.
+
+**B9.5 – Query mit Vault-Filter**
+
+* `POST /v1/query` bekommt optionales `vault_ids: list[uuid]`
+* Ohne Filter: alle Vaults im Workspace durchsuchen (backward compatible)
+* pgvector-Suche, Seed-Entities, Neo4j-Traversal: alle vault-gefiltert
+  **Done:** Queries auf Vault-Ebene einschränkbar.
+
+---
+
+# "Day-by-day" Reihenfolge (schnellster Pfad)
 
 1. B0 + B1 + B2 (compose + schema)
 2. B3 + B4.2 (job system + ingest endpoint)
@@ -290,13 +339,13 @@ Cypher pattern:
 4. B6 (chunk/embed/extract/upsert) end-to-end
 5. B4.3 + B7 (query endpoint + traversal + citations)
 6. B8 (hardening)
+7. B9 (context vaults)
 
 ---
 
-## Mini-Definition of Done (damit ihr wisst, ihr seid “fertig”)
+## Mini-Definition of Done (damit ihr wisst, ihr seid "fertig")
 
 * Backfill Gmail+Notion via Nango → 200+ docs in Postgres
 * Worker baut chunks+embeddings+graph
 * `POST /v1/query` beantwortet 3 feste Queries und liefert 5–10 citations mit echten Notion/Gmail Links
-
-Wenn du sagst, ob du Node oder Python fürs Backend nimmst, kann ich die Tickets noch in eine konkrete Ordnerstruktur + konkrete Libraries übersetzen (FastAPI + SQLAlchemy + neo4j driver vs NestJS + Prisma + neo4j-js).
+* Context Vaults: Daten partitionierbar, Query auf Vault-Ebene einschränkbar

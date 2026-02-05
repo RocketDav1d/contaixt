@@ -27,6 +27,7 @@ router = APIRouter(prefix="/v1", tags=["query"])
 class QueryRequest(BaseModel):
     workspace_id: uuid.UUID
     prompt: str
+    vault_ids: list[uuid.UUID] | None = None
     depth: int = 2
     top_k_chunks: int = 20
 
@@ -90,10 +91,11 @@ def _build_context_prompt(chunks: list[dict], facts: list[dict]) -> str:
 
 @router.post("/query", response_model=QueryResponse)
 async def query(body: QueryRequest):
-    # 1-4. Build context
+    # 1-4. Build context (optionally filtered by vault_ids)
     ctx = await build_context(
         workspace_id=body.workspace_id,
         prompt=body.prompt,
+        vault_ids=body.vault_ids,
         depth=body.depth,
         top_k=body.top_k_chunks,
     )

@@ -8,12 +8,14 @@ from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
 from app.api.query import router as query_router
 from app.api.sources import router as sources_router
+from app.api.vaults import router as vaults_router
 from app.api.webhooks import router as webhooks_router
 from app.api.workspaces import router as workspaces_router
 
 app = FastAPI(title="Contaixt API", version="0.1.0")
 
 app.include_router(workspaces_router)
+app.include_router(vaults_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(jobs_router)

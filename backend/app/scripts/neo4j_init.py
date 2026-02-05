@@ -48,6 +48,11 @@ STATEMENTS = [
     CREATE INDEX document_workspace_idx IF NOT EXISTS
     FOR (n:Document) ON (n.workspace_id)
     """,
+    # --- Vault index on Document nodes ---
+    """
+    CREATE INDEX document_vault_idx IF NOT EXISTS
+    FOR (n:Document) ON (n.vault_id)
+    """,
 ]
 
 

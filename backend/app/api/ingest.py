@@ -9,13 +9,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import get_async_session
 from app.jobs.enqueue import enqueue_job
-from app.models import Document, JobType, SourceType
+from app.models import ContextVault, Document, JobType, SourceType
 
 router = APIRouter(prefix="/v1/ingest", tags=["ingest"])
 
 
 class IngestDocumentRequest(BaseModel):
     workspace_id: uuid.UUID
+    vault_id: uuid.UUID | None = None  # None = use default vault
     source_type: SourceType
     external_id: str
     url: str | None = None
@@ -32,9 +33,25 @@ class IngestDocumentResponse(BaseModel):
     status: str  # "created" | "updated" | "unchanged"
 
 
+async def _resolve_default_vault(workspace_id: uuid.UUID) -> uuid.UUID:
+    """Get the default vault_id for a workspace."""
+    Session = get_async_session()
+    async with Session() as session:
+        result = await session.execute(
+            select(ContextVault.id).where(
+                ContextVault.workspace_id == workspace_id,
+                ContextVault.is_default == True,
+            )
+        )
+        return result.scalar_one()
+
+
 @router.post("/document", response_model=IngestDocumentResponse, status_code=200)
 async def ingest_document(body: IngestDocumentRequest):
     content_hash = hashlib.sha256(body.content_text.encode()).hexdigest()
+
+    # Resolve vault_id
+    vault_id = body.vault_id or await _resolve_default_vault(body.workspace_id)
 
     Session = get_async_session()
     async with Session() as session:
@@ -42,6 +59,7 @@ async def ingest_document(body: IngestDocumentRequest):
         existing = await session.execute(
             select(Document.id, Document.content_hash).where(
                 Document.workspace_id == body.workspace_id,
+                Document.vault_id == vault_id,
                 Document.source_type == body.source_type,
                 Document.external_id == body.external_id,
             )
@@ -56,6 +74,7 @@ async def ingest_document(body: IngestDocumentRequest):
         stmt = pg_insert(Document).values(
             id=doc_id,
             workspace_id=body.workspace_id,
+            vault_id=vault_id,
             source_type=body.source_type,
             external_id=body.external_id,
             url=body.url,
@@ -66,7 +85,7 @@ async def ingest_document(body: IngestDocumentRequest):
             content_hash=content_hash,
         )
         stmt = stmt.on_conflict_do_update(
-            constraint="uq_doc_workspace_source_ext",
+            constraint="uq_doc_workspace_vault_source_ext",
             set_={
                 "url": stmt.excluded.url,
                 "title": stmt.excluded.title,

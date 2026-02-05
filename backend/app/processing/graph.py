@@ -23,6 +23,7 @@ LABEL_MAP = {
 
 async def upsert_entities_and_relations(
     workspace_id: uuid.UUID,
+    vault_id: uuid.UUID | None,
     document_id: uuid.UUID,
     entities: list[dict],
     relations: list[dict],
@@ -33,6 +34,7 @@ async def upsert_entities_and_relations(
     Also creates inter-entity relations (WORKS_AT, HAS_CONTACT, etc.).
     """
     ws = str(workspace_id)
+    v_id = str(vault_id) if vault_id else ""
     doc_id = str(document_id)
 
     driver = AsyncGraphDatabase.driver(
@@ -45,9 +47,9 @@ async def upsert_entities_and_relations(
         await session.run(
             """
             MERGE (d:Document {workspace_id: $ws, key: $key})
-            SET d.document_id = $doc_id
+            SET d.document_id = $doc_id, d.vault_id = $vault_id
             """,
-            ws=ws, key=f"doc:{doc_id}", doc_id=doc_id,
+            ws=ws, key=f"doc:{doc_id}", doc_id=doc_id, vault_id=v_id,
         )
 
         # Upsert entity nodes + MENTIONS edges
@@ -79,12 +81,14 @@ async def upsert_entities_and_relations(
                 MATCH (e:{label} {{workspace_id: $ws, key: $entity_key}})
                 MERGE (d)-[r:MENTIONS]->(e)
                 SET r.document_id = $doc_id,
+                    r.vault_id = $vault_id,
                     r.confidence = 1.0
                 """,
                 ws=ws,
                 doc_key=f"doc:{doc_id}",
                 entity_key=key,
                 doc_id=doc_id,
+                vault_id=v_id,
             )
 
         # Inter-entity relations (WORKS_AT, HAS_CONTACT, etc.)
@@ -103,12 +107,14 @@ async def upsert_entities_and_relations(
                 MATCH (b {{workspace_id: $ws, key: $to_key}})
                 MERGE (a)-[r:{rel_type}]->(b)
                 SET r.document_id = $doc_id,
+                    r.vault_id = $vault_id,
                     r.evidence = $evidence
                 """,
                 ws=ws,
                 from_key=from_key,
                 to_key=to_key,
                 doc_id=doc_id,
+                vault_id=v_id,
                 evidence=rel.get("evidence", "")[:200],
             )
 
