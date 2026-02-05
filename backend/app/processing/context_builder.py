@@ -223,7 +223,7 @@ async def enrich_chunks_with_docs(
     async with Session() as session:
         result = await session.execute(
             select(Document.id, Document.title, Document.url, Document.source_type)
-            .where(Document.id.in_(doc_ids))
+            .where(Document.workspace_id == workspace_id, Document.id.in_(doc_ids))
         )
         rows = result.fetchall()
 

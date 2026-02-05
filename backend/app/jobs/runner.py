@@ -102,13 +102,15 @@ async def run_loop() -> None:
             logger.info("Claimed job %s type=%s attempt=%s", job["id"], job["type"], job["attempts"])
 
             try:
+                t0 = asyncio.get_event_loop().time()
                 await process_job(job)
+                elapsed = asyncio.get_event_loop().time() - t0
                 async with Session() as session:
                     await mark_done(session, job["id"])
-                logger.info("Job %s done", job["id"])
+                logger.info("Job %s type=%s done in %.2fs", job["id"], job["type"], elapsed)
             except Exception:
                 tb = traceback.format_exc()
-                logger.error("Job %s failed:\n%s", job["id"], tb)
+                logger.error("Job %s type=%s failed (attempt %s):\n%s", job["id"], job["type"], job["attempts"], tb)
                 async with Session() as session:
                     await mark_failed(session, job["id"], tb, job["attempts"])
 

@@ -4,15 +4,31 @@ Job type handlers. Each handler receives (workspace_id, payload_json).
 
 import json
 import logging
+import time
 import uuid
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 
 from app.db import get_async_session
 from app.jobs.runner import register_handler
-from app.models import Document, DocumentChunk, EntityMention, JobType
+from app.models import Document, DocumentChunk, EntityMention, Job, JobStatus, JobType
 
 logger = logging.getLogger(__name__)
+
+
+async def _has_pending_job(workspace_id: uuid.UUID, job_type: JobType, document_id: str) -> bool:
+    """Check if a queued/running job already exists for this document + type."""
+    Session = get_async_session()
+    async with Session() as session:
+        result = await session.execute(
+            select(func.count()).select_from(Job).where(
+                Job.workspace_id == workspace_id,
+                Job.type == job_type,
+                Job.status.in_([JobStatus.queued, JobStatus.running]),
+                Job.payload_json["document_id"].as_string() == document_id,
+            )
+        )
+        return result.scalar_one() > 0
 
 
 async def handle_process_document(workspace_id: uuid.UUID, payload: dict) -> None:
@@ -22,8 +38,12 @@ async def handle_process_document(workspace_id: uuid.UUID, payload: dict) -> Non
     document_id = payload["document_id"]
     logger.info("PROCESS_DOCUMENT doc=%s", document_id)
 
-    await enqueue_job(workspace_id, JobType.CHUNK_DOCUMENT, {"document_id": document_id})
-    await enqueue_job(workspace_id, JobType.EXTRACT_ENTITIES_RELATIONS, {"document_id": document_id})
+    # Idempotency: skip if jobs already queued for this document
+    for jt in (JobType.CHUNK_DOCUMENT, JobType.EXTRACT_ENTITIES_RELATIONS):
+        if not await _has_pending_job(workspace_id, jt, document_id):
+            await enqueue_job(workspace_id, jt, {"document_id": document_id})
+        else:
+            logger.info("PROCESS_DOCUMENT: skipping %s (already queued) doc=%s", jt.value, document_id)
 
 
 async def handle_chunk_document(workspace_id: uuid.UUID, payload: dict) -> None:
