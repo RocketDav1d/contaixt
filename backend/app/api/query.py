@@ -89,6 +89,25 @@ def _build_context_prompt(chunks: list[dict], facts: list[dict]) -> str:
     return "\n".join(parts)
 
 
+class ContextRequest(BaseModel):
+    workspace_id: uuid.UUID
+    prompt: str
+    vault_ids: list[uuid.UUID] | None = None
+    top_k: int = 20
+
+
+@router.post("/context")
+async def get_context(body: ContextRequest):
+    """Return raw context (chunks + facts) without LLM answer - for frontend AI SDK."""
+    ctx = await build_context(
+        workspace_id=body.workspace_id,
+        prompt=body.prompt,
+        vault_ids=body.vault_ids,
+        top_k=body.top_k,
+    )
+    return ctx
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query(body: QueryRequest):
     # 1-4. Build context (optionally filtered by vault_ids)

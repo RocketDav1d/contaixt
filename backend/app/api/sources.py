@@ -75,8 +75,34 @@ async def register_connection(body: RegisterConnectionRequest):
     )
 
 
+@router.get("")
+async def list_sources(workspace_id: uuid.UUID):
+    """List all source connections for a workspace."""
+    Session = get_async_session()
+    async with Session() as session:
+        result = await session.execute(
+            select(SourceConnection).where(SourceConnection.workspace_id == workspace_id)
+        )
+        rows = result.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "workspace_id": str(r.workspace_id),
+            "vault_id": str(r.vault_id),
+            "source_type": r.source_type.value,
+            "nango_connection_id": r.nango_connection_id,
+            "external_account_id": r.external_account_id,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/nango/connections")
 async def list_connections(workspace_id: uuid.UUID):
+    """Legacy endpoint - use GET /v1/sources instead."""
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(

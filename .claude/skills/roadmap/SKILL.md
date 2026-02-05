@@ -349,3 +349,56 @@ Cypher pattern:
 * Worker baut chunks+embeddings+graph
 * `POST /v1/query` beantwortet 3 feste Queries und liefert 5–10 citations mit echten Notion/Gmail Links
 * Context Vaults: Daten partitionierbar, Query auf Vault-Ebene einschränkbar
+
+---
+
+## 10) Frontend (Next.js + Supabase + shadcn)
+
+> Next.js App Router mit Supabase Auth und shadcn/ui Komponenten.
+> Drei Hauptseiten: Overview (Chat), Context Vaults, Integrations.
+> Design: Sidebar-Navigation links, Hauptinhalt rechts.
+
+**F10.1 – Next.js App Setup**
+
+* `npx create-next-app -e with-supabase app`
+* shadcn/ui initialisieren
+* Tailwind + CSS Variables für Theming
+  **Done:** App läuft lokal mit Supabase Auth.
+
+**F10.2 – Layout: Sidebar + Navigation**
+
+* Sidebar links: Logo, Workspace-Selector, Navigation (Overview, Context Vaults, Integrations)
+* Bottom: Settings, Help, User Profile mit Avatar
+* Responsive: Collapsible auf Mobile
+  **Done:** Navigation zwischen Seiten funktioniert.
+
+**F10.3 – Overview Page (Chat Interface)**
+
+* Chat-Input unten
+* Nachrichten-Liste mit User/Assistant Bubbles
+* Citations als klickbare Links
+* Vault-Selector für Query-Scope
+  **Done:** User kann Fragen stellen und bekommt Antworten mit Quellen.
+
+**F10.4 – Context Vaults Page**
+
+* Grid mit Vault-Cards (Purple Folder Design wie Referenz-Image)
+* Vault-Name + "Used by X tools" Subtitle
+* "+ New" Button zum Erstellen neuer Vaults
+* Edit/Delete Actions pro Vault
+  **Done:** Vaults CRUD über UI.
+
+**F10.5 – Integrations Page (Data Sources)**
+
+* Tabelle: Data Source, Status (Active/Inactive), Last Sync, Actions
+* Icons für verschiedene Provider (Gmail, Notion, Drive, etc.)
+* "+ Add Integration" Button mit Nango Connect Flow
+* Backfill Trigger Button pro Connection
+  **Done:** User kann Datenquellen verbinden und Status sehen.
+
+**F10.6 – API Client + Auth Flow**
+
+* Supabase Auth Session an Backend API weiterleiten
+* API Client für alle Backend-Endpoints
+* Error Handling + Loading States
+  **Done:** Frontend kommuniziert sicher mit Backend.
