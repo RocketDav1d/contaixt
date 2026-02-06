@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, RefreshCw, Loader2, ExternalLink } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import Nango from "@nangohq/frontend";
+import { Plus, RefreshCw, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -14,22 +15,15 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"; // Used for provider selection
-import { Input } from "@/components/ui/input";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface SourceConnection {
   id: string;
@@ -49,9 +43,13 @@ interface Vault {
 }
 
 // Provider configurations
-const PROVIDERS = {
+const PROVIDERS: Record<
+  string,
+  { name: string; icon: React.ReactNode; nangoKey: string }
+> = {
   gmail: {
     name: "Gmail",
+    nangoKey: "google-mail",
     icon: (
       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-100">
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#EA4335">
@@ -59,10 +57,10 @@ const PROVIDERS = {
         </svg>
       </div>
     ),
-    color: "bg-red-500",
   },
   notion: {
     name: "Notion",
+    nangoKey: "notion",
     icon: (
       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100">
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#000">
@@ -70,47 +68,6 @@ const PROVIDERS = {
         </svg>
       </div>
     ),
-    color: "bg-gray-900",
-  },
-  drive: {
-    name: "Google Drive",
-    icon: (
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
-        <svg className="h-5 w-5" viewBox="0 0 24 24">
-          <path fill="#4285F4" d="M12 11L6 21h12l-6-10z" />
-          <path fill="#FBBC05" d="M6 21l3.5-6H2l4 6z" />
-          <path fill="#34A853" d="M14.5 15H22l-4-6H9.5l5 6z" />
-          <path fill="#EA4335" d="M12 3L6 13h6l6-10H12z" />
-        </svg>
-      </div>
-    ),
-    color: "bg-blue-500",
-  },
-  slack: {
-    name: "Slack",
-    icon: (
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-        <svg className="h-5 w-5" viewBox="0 0 24 24">
-          <path
-            fill="#E01E5A"
-            d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z"
-          />
-          <path
-            fill="#36C5F0"
-            d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z"
-          />
-          <path
-            fill="#2EB67D"
-            d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312z"
-          />
-          <path
-            fill="#ECB22E"
-            d="M15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"
-          />
-        </svg>
-      </div>
-    ),
-    color: "bg-purple-500",
   },
 };
 
@@ -129,23 +86,25 @@ function formatRelativeTime(dateString: string): string {
   return `${diffDays} days ago`;
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function IntegrationsPage() {
   const [connections, setConnections] = useState<SourceConnection[]>([]);
   const [vaults, setVaults] = useState<Vault[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [connectionId, setConnectionId] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [deleteConnection, setDeleteConnection] =
+    useState<SourceConnection | null>(null);
 
-  // TODO: Get workspace_id from context
+  // TODO: Get from auth context
   const workspaceId = "50926c1f-8132-4694-bd8a-b250c4a67089";
+  const userId = "user-1"; // Should come from Supabase auth
 
-  const fetchConnections = async () => {
+  const fetchConnections = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/v1/sources?workspace_id=${workspaceId}`
+        `${API_URL}/v1/sources?workspace_id=${workspaceId}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -156,12 +115,12 @@ export default function IntegrationsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [workspaceId]);
 
-  const fetchVaults = async () => {
+  const fetchVaults = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/v1/vaults?workspace_id=${workspaceId}`
+        `${API_URL}/v1/vaults?workspace_id=${workspaceId}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -170,44 +129,65 @@ export default function IntegrationsPage() {
     } catch (error) {
       console.error("Error fetching vaults:", error);
     }
-  };
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchConnections();
     fetchVaults();
-  }, []);
+  }, [fetchConnections, fetchVaults]);
 
-  const handleAddConnection = async () => {
-    if (!selectedProvider || !connectionId.trim()) return;
-    setIsSubmitting(true);
+  const handleAddIntegration = async () => {
+    setIsConnecting(true);
 
     try {
-      const response = await fetch(
-        "http://localhost:8000/v1/sources/nango/register",
+      // 1. Get connect session token from backend
+      const sessionResponse = await fetch(
+        `${API_URL}/v1/sources/nango/connect-session`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             workspace_id: workspaceId,
-            source_type: selectedProvider,
-            nango_connection_id: connectionId,
+            user_id: userId,
           }),
         }
       );
 
-      if (response.ok) {
-        setIsAddOpen(false);
-        setSelectedProvider("");
-        setConnectionId("");
-        fetchConnections();
-      } else {
-        const error = await response.json();
-        alert(error.detail || "Failed to add connection");
+      if (!sessionResponse.ok) {
+        const error = await sessionResponse.json();
+        throw new Error(error.detail || "Failed to create session");
       }
+
+      const { token } = await sessionResponse.json();
+
+      // 2. Initialize Nango with the session token
+      const nango = new Nango({ connectSessionToken: token });
+
+      // 3. Open Nango Connect UI
+      nango.openConnectUI({
+        onEvent: (event) => {
+          console.log("Nango event:", event);
+
+          if (event.type === "close") {
+            setIsConnecting(false);
+            // Refresh connections after modal closes
+            // (webhook may have created the connection)
+            setTimeout(() => fetchConnections(), 1000);
+          }
+
+          if (event.type === "connect") {
+            // Connection created successfully
+            console.log("Connected:", event.payload);
+            fetchConnections();
+          }
+        },
+      });
     } catch (error) {
-      console.error("Error adding connection:", error);
-    } finally {
-      setIsSubmitting(false);
+      console.error("Error starting connection:", error);
+      alert(
+        error instanceof Error ? error.message : "Failed to start connection"
+      );
+      setIsConnecting(false);
     }
   };
 
@@ -215,7 +195,7 @@ export default function IntegrationsPage() {
     setSyncingId(sourceType);
     try {
       const response = await fetch(
-        `http://localhost:8000/v1/sources/${sourceType}/backfill`,
+        `${API_URL}/v1/sources/${sourceType}/backfill`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -225,7 +205,10 @@ export default function IntegrationsPage() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(`Backfill started: ${data.documents_ingested || 0} documents queued`);
+        alert(
+          `Backfill complete: ${data.ingested} documents ingested from ${data.fetched} records`
+        );
+        fetchConnections();
       } else {
         const error = await response.json();
         alert(error.detail || "Backfill failed");
@@ -234,6 +217,30 @@ export default function IntegrationsPage() {
       console.error("Error triggering backfill:", error);
     } finally {
       setSyncingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConnection) return;
+
+    try {
+      const response = await fetch(
+        `${API_URL}/v1/sources/${deleteConnection.id}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (response.ok) {
+        fetchConnections();
+      } else {
+        const error = await response.json();
+        alert(error.detail || "Failed to delete connection");
+      }
+    } catch (error) {
+      console.error("Error deleting connection:", error);
+    } finally {
+      setDeleteConnection(null);
     }
   };
 
@@ -253,74 +260,28 @@ export default function IntegrationsPage() {
           </p>
         </div>
 
-        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-[#412bcf] hover:bg-[#3623a8]">
-              <Plus className="mr-2 h-4 w-4" />
-              Add integration
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add new integration</DialogTitle>
-              <DialogDescription>
-                Connect a new data source via Nango.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <label className="text-sm font-medium">Provider</label>
-                <Select
-                  value={selectedProvider}
-                  onValueChange={setSelectedProvider}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PROVIDERS).map(([key, provider]) => (
-                      <SelectItem key={key} value={key}>
-                        <div className="flex items-center gap-2">
-                          {provider.icon}
-                          <span>{provider.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium">
-                  Nango Connection ID
-                </label>
-                <Input
-                  value={connectionId}
-                  onChange={(e) => setConnectionId(e.target.value)}
-                  placeholder="Enter your Nango connection ID"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Get this from your Nango dashboard after connecting.
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                New connections are automatically assigned to the default vault.
-                You can manage vault assignments from the Vaults page.
-              </p>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleAddConnection} disabled={isSubmitting}>
-                {isSubmitting && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Add integration
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button
+          onClick={handleAddIntegration}
+          disabled={isConnecting}
+          className="bg-[#412bcf] hover:bg-[#3623a8]"
+        >
+          {isConnecting ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Plus className="mr-2 h-4 w-4" />
+          )}
+          Add integration
+        </Button>
       </div>
+
+      {/* Info Card */}
+      <Card className="mb-6 border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950">
+        <p className="text-sm text-blue-800 dark:text-blue-200">
+          Click &quot;Add integration&quot; to connect Gmail, Notion, or other
+          data sources. After connecting, click &quot;Sync&quot; to import your
+          data.
+        </p>
+      </Card>
 
       {/* Connections Table */}
       <Card>
@@ -363,11 +324,11 @@ export default function IntegrationsPage() {
                         )}
                         <div>
                           <p className="font-medium">
-                            {provider?.name || connection.source_type}{" "}
-                            connection
+                            {provider?.name || connection.source_type}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {connection.nango_connection_id}
+                            {connection.external_account_id ||
+                              connection.nango_connection_id}
                           </p>
                         </div>
                       </div>
@@ -381,7 +342,7 @@ export default function IntegrationsPage() {
                             </Badge>
                           ))
                         ) : (
-                          <span className="text-muted-foreground text-sm">
+                          <span className="text-sm text-muted-foreground">
                             No vaults
                           </span>
                         )}
@@ -396,7 +357,7 @@ export default function IntegrationsPage() {
                         }
                         className={
                           connection.status === "active"
-                            ? "bg-[#412bcf]/10 text-[#412bcf]"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
                             : ""
                         }
                       >
@@ -407,19 +368,29 @@ export default function IntegrationsPage() {
                       {formatRelativeTime(connection.updated_at)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleBackfill(connection.source_type)}
-                        disabled={syncingId === connection.source_type}
-                      >
-                        {syncingId === connection.source_type ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <RefreshCw className="mr-2 h-4 w-4" />
-                        )}
-                        Sync
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleBackfill(connection.source_type)}
+                          disabled={syncingId === connection.source_type}
+                        >
+                          {syncingId === connection.source_type ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                          )}
+                          Sync
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteConnection(connection)}
+                          className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -428,6 +399,34 @@ export default function IntegrationsPage() {
           </Table>
         )}
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteConnection}
+        onOpenChange={() => setDeleteConnection(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete integration?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the{" "}
+              {PROVIDERS[deleteConnection?.source_type || ""]?.name ||
+                deleteConnection?.source_type}{" "}
+              connection. Documents already synced will remain in your
+              knowledge base.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

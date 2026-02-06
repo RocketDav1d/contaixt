@@ -8,10 +8,12 @@ via the vault_source_connections join table.
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import insert, select
 
+from app.config import settings
 from app.db import get_async_session
 from app.api.ingest import IngestDocumentRequest, ingest_document
 from app.models import ContextVault, SourceConnection, SourceType, VaultSourceConnection
@@ -22,6 +24,8 @@ from app.nango.normalizers import NORMALIZERS, normalize_notion
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/sources", tags=["sources"])
+
+NANGO_API_URL = "https://api.nango.dev"
 
 # Map our source_type → Nango providerConfigKey
 SOURCE_TO_PROVIDER = {
@@ -34,6 +38,75 @@ DEFAULT_MODELS = {
     "google-mail": "GmailEmail",
     "notion": "ContentMetadata",
 }
+
+
+# =============================================================================
+# Nango Connect Session
+# =============================================================================
+
+
+class ConnectSessionRequest(BaseModel):
+    workspace_id: uuid.UUID
+    user_id: str  # Unique identifier for the end user
+    user_email: str | None = None
+    user_display_name: str | None = None
+
+
+class ConnectSessionResponse(BaseModel):
+    token: str
+    expires_at: str
+
+
+@router.post("/nango/connect-session", response_model=ConnectSessionResponse)
+async def create_connect_session(body: ConnectSessionRequest):
+    """
+    Create a Nango connect session for the frontend OAuth flow.
+
+    The frontend uses this token to open Nango's Connect UI, which handles
+    the OAuth flow and creates the connection. Nango sends a webhook when
+    the connection is complete.
+    """
+    if not settings.nango_secret_key:
+        raise HTTPException(500, "Nango secret key not configured")
+
+    # Prepare request to Nango
+    nango_body = {
+        "end_user": {
+            "id": body.user_id,
+        },
+        # Only include integrations we support
+        "allowed_integrations": ["google-mail", "notion"],
+    }
+
+    if body.user_email:
+        nango_body["end_user"]["email"] = body.user_email
+    if body.user_display_name:
+        nango_body["end_user"]["display_name"] = body.user_display_name
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{NANGO_API_URL}/connect/sessions",
+            headers={
+                "Authorization": f"Bearer {settings.nango_secret_key}",
+                "Content-Type": "application/json",
+            },
+            json=nango_body,
+        )
+
+    if response.status_code != 201:
+        logger.error("Nango connect session failed: %s %s", response.status_code, response.text)
+        raise HTTPException(500, f"Failed to create Nango session: {response.text}")
+
+    data = response.json()["data"]
+    return ConnectSessionResponse(
+        token=data["token"],
+        expires_at=data["expires_at"],
+    )
+
+
+# =============================================================================
+# Vault helpers
+# =============================================================================
 
 
 async def _get_default_vault(workspace_id: uuid.UUID) -> uuid.UUID:
