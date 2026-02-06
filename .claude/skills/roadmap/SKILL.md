@@ -431,3 +431,73 @@ Cypher pattern:
 * Model: `rerank-v3.5`
 * Graceful fallback if API unavailable
   **Done:** Significantly improved retrieval precision.
+
+---
+
+## 12) Vault-Connection Restructure
+
+> Decouple vaults from connections with a many-to-many relationship. Connections exist at workspace level, vaults select which connections to include. Enables flexible data organization.
+
+**F12.1 – Schema Restructure**
+
+* New join table `vault_source_connections(vault_id, source_connection_id)`
+* Remove `vault_id` from: `source_connections`, `documents`, `document_chunks`, `entity_mentions`
+* Add `source_connection_id` to `documents` (link to ingesting connection)
+* Migration `004_vault_connection_restructure.py` with full backfill logic
+  **Done:** Cleaner data model with flexible vault membership.
+
+**F12.2 – Model Updates**
+
+* New `VaultSourceConnection` model (join table)
+* `SourceConnection`: Remove vault_id, now workspace-level
+* `Document`: Replace vault_id with source_connection_id
+* `DocumentChunk`, `EntityMention`: Inherit vault via document → connection
+  **Done:** Models reflect new architecture.
+
+**F12.3 – Vault Filtering via Connections**
+
+* `context_builder.py`: New `get_connection_ids_for_vaults()` helper
+* `top_k_chunks()`: Filter by connection_id via document join
+* `seed_entities()`: Filter by connection_id via document join
+* `neo4j_traverse_simple()`: Unified graph (no vault filtering on edges)
+  **Done:** Vault filtering works through connection membership.
+
+**F12.4 – API Updates**
+
+* `vaults.py`: Manage vault-connection assignments
+* `sources.py`: Connections are workspace-level, assign to vaults
+* `ingest.py`: Use source_connection_id on documents
+* `webhooks.py`: Resolve connection for incoming syncs
+  **Done:** APIs support new data model.
+
+**F12.5 – Frontend Updates**
+
+* Vaults page: Show/manage assigned connections
+* Integrations page: Assign connections to vaults
+  **Done:** UI supports vault-connection management.
+
+---
+
+### Architecture: Before vs After
+
+**Before (vault_id everywhere):**
+```
+Vault ──1:N──> Connection ──1:N──> Document ──1:N──> Chunk
+                                              └──> EntityMention
+```
+
+**After (many-to-many via join table):**
+```
+Workspace ──1:N──> Connection ──1:N──> Document ──1:N──> Chunk
+                       │                           └──> EntityMention
+                       │
+              vault_source_connections (M:N)
+                       │
+Workspace ──1:N──> Vault
+```
+
+**Benefits:**
+- Same connection can be in multiple vaults
+- Documents stored once, accessible from multiple vaults
+- Cleaner separation: connections = data sources, vaults = retrieval scopes
+- Unified knowledge graph across workspace (cross-vault discovery)

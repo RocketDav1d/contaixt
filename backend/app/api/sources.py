@@ -1,5 +1,8 @@
 """
 Source connection registry + backfill trigger.
+
+Connections are workspace-level. Vaults select which connections to include
+via the vault_source_connections join table.
 """
 
 import logging
@@ -10,8 +13,8 @@ from pydantic import BaseModel
 from sqlalchemy import insert, select
 
 from app.db import get_async_session
-from app.api.ingest import IngestDocumentRequest, _resolve_default_vault, ingest_document
-from app.models import SourceConnection, SourceType
+from app.api.ingest import IngestDocumentRequest, ingest_document
+from app.models import ContextVault, SourceConnection, SourceType, VaultSourceConnection
 from app.nango.client import list_records
 from app.nango.content import fetch_notion_content_map
 from app.nango.normalizers import NORMALIZERS, normalize_notion
@@ -33,9 +36,36 @@ DEFAULT_MODELS = {
 }
 
 
+async def _get_default_vault(workspace_id: uuid.UUID) -> uuid.UUID:
+    """Get the default vault ID for a workspace."""
+    Session = get_async_session()
+    async with Session() as session:
+        result = await session.execute(
+            select(ContextVault.id).where(
+                ContextVault.workspace_id == workspace_id,
+                ContextVault.is_default == True,
+            )
+        )
+        vault_id = result.scalar_one_or_none()
+        if not vault_id:
+            raise HTTPException(404, "No default vault found for workspace")
+        return vault_id
+
+
+async def _get_vault_ids_for_connection(connection_id: uuid.UUID) -> list[uuid.UUID]:
+    """Get all vault IDs assigned to a connection."""
+    Session = get_async_session()
+    async with Session() as session:
+        result = await session.execute(
+            select(VaultSourceConnection.vault_id).where(
+                VaultSourceConnection.source_connection_id == connection_id
+            )
+        )
+        return [row[0] for row in result.fetchall()]
+
+
 class RegisterConnectionRequest(BaseModel):
     workspace_id: uuid.UUID
-    vault_id: uuid.UUID | None = None  # None = use default vault
     source_type: SourceType
     nango_connection_id: str
     external_account_id: str | None = None
@@ -44,59 +74,94 @@ class RegisterConnectionRequest(BaseModel):
 class RegisterConnectionResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
-    vault_id: uuid.UUID
     source_type: SourceType
     nango_connection_id: str
+    vault_ids: list[uuid.UUID]  # Vaults this connection is assigned to
 
 
 @router.post("/nango/register", response_model=RegisterConnectionResponse, status_code=201)
 async def register_connection(body: RegisterConnectionRequest):
-    vault_id = body.vault_id or await _resolve_default_vault(body.workspace_id)
+    """Register a new OAuth connection and auto-assign to default vault."""
+    default_vault_id = await _get_default_vault(body.workspace_id)
+
     Session = get_async_session()
     conn_id = uuid.uuid4()
     async with Session() as session:
+        # Create the connection (workspace-level, no vault_id)
         await session.execute(
             insert(SourceConnection).values(
                 id=conn_id,
                 workspace_id=body.workspace_id,
-                vault_id=vault_id,
                 source_type=body.source_type,
                 nango_connection_id=body.nango_connection_id,
                 external_account_id=body.external_account_id,
             )
         )
+
+        # Auto-assign to default vault
+        await session.execute(
+            insert(VaultSourceConnection).values(
+                vault_id=default_vault_id,
+                source_connection_id=conn_id,
+            )
+        )
+
         await session.commit()
+
     return RegisterConnectionResponse(
         id=conn_id,
         workspace_id=body.workspace_id,
-        vault_id=vault_id,
         source_type=body.source_type,
         nango_connection_id=body.nango_connection_id,
+        vault_ids=[default_vault_id],
     )
 
 
 @router.get("")
 async def list_sources(workspace_id: uuid.UUID):
-    """List all source connections for a workspace."""
+    """List all source connections for a workspace with their vault assignments."""
     Session = get_async_session()
     async with Session() as session:
+        # Get all connections
         result = await session.execute(
             select(SourceConnection).where(SourceConnection.workspace_id == workspace_id)
         )
-        rows = result.scalars().all()
+        connections = result.scalars().all()
+
+        # Get vault assignments for all connections
+        conn_ids = [c.id for c in connections]
+        if conn_ids:
+            vault_result = await session.execute(
+                select(
+                    VaultSourceConnection.source_connection_id,
+                    VaultSourceConnection.vault_id
+                ).where(VaultSourceConnection.source_connection_id.in_(conn_ids))
+            )
+            vault_rows = vault_result.fetchall()
+        else:
+            vault_rows = []
+
+    # Group vault_ids by connection
+    vault_map: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for row in vault_rows:
+        conn_id, vault_id = row
+        if conn_id not in vault_map:
+            vault_map[conn_id] = []
+        vault_map[conn_id].append(vault_id)
+
     return [
         {
             "id": str(r.id),
             "workspace_id": str(r.workspace_id),
-            "vault_id": str(r.vault_id),
             "source_type": r.source_type.value,
             "nango_connection_id": r.nango_connection_id,
             "external_account_id": r.external_account_id,
-            "status": r.status,
+            "status": r.status.value if r.status else None,
+            "vault_ids": [str(v) for v in vault_map.get(r.id, [])],
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }
-        for r in rows
+        for r in connections
     ]
 
 
@@ -166,13 +231,17 @@ async def backfill(source_type: SourceType, workspace_id: uuid.UUID):
         normalizer = NORMALIZERS[provider_key]
         docs = normalizer(records)
 
-    vault_id = conn.vault_id
-
     ingested = 0
     for doc in docs:
         if not doc.get("content_text"):
             continue
-        await ingest_document(IngestDocumentRequest(workspace_id=workspace_id, vault_id=vault_id, **doc))
+        await ingest_document(
+            IngestDocumentRequest(
+                workspace_id=workspace_id,
+                source_connection_id=conn.id,
+                **doc
+            )
+        )
         ingested += 1
 
     logger.info("Backfill: ingested %d documents", ingested)

@@ -28,13 +28,13 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/components/ui/select"; // Used for provider selection
 import { Input } from "@/components/ui/input";
 
 interface SourceConnection {
   id: string;
   workspace_id: string;
-  vault_id: string;
+  vault_ids: string[];
   source_type: string;
   nango_connection_id: string;
   external_account_id: string | null;
@@ -135,7 +135,6 @@ export default function IntegrationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("");
-  const [selectedVault, setSelectedVault] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -167,11 +166,6 @@ export default function IntegrationsPage() {
       if (response.ok) {
         const data = await response.json();
         setVaults(data);
-        // Set default vault as initial selection
-        const defaultVault = data.find((v: Vault) => v.name === "Default");
-        if (defaultVault) {
-          setSelectedVault(defaultVault.id);
-        }
       }
     } catch (error) {
       console.error("Error fetching vaults:", error);
@@ -197,7 +191,6 @@ export default function IntegrationsPage() {
             workspace_id: workspaceId,
             source_type: selectedProvider,
             nango_connection_id: connectionId,
-            vault_id: selectedVault || undefined,
           }),
         }
       );
@@ -309,21 +302,10 @@ export default function IntegrationsPage() {
                   Get this from your Nango dashboard after connecting.
                 </p>
               </div>
-              <div>
-                <label className="text-sm font-medium">Target Vault</label>
-                <Select value={selectedVault} onValueChange={setSelectedVault}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a vault" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vaults.map((vault) => (
-                      <SelectItem key={vault.id} value={vault.id}>
-                        {vault.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                New connections are automatically assigned to the default vault.
+                You can manage vault assignments from the Vaults page.
+              </p>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddOpen(false)}>
@@ -360,7 +342,7 @@ export default function IntegrationsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Data source</TableHead>
-                <TableHead>Vault</TableHead>
+                <TableHead>Vaults</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Last sync</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -391,9 +373,19 @@ export default function IntegrationsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
-                        {getVaultName(connection.vault_id)}
-                      </Badge>
+                      <div className="flex flex-wrap gap-1">
+                        {connection.vault_ids.length > 0 ? (
+                          connection.vault_ids.map((vaultId) => (
+                            <Badge key={vaultId} variant="outline">
+                              {getVaultName(vaultId)}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground text-sm">
+                            No vaults
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge

@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Vault {
   id: string;
@@ -31,6 +32,20 @@ interface Vault {
   is_default: boolean;
   created_at: string;
   document_count?: number;
+}
+
+interface SourceConnection {
+  id: string;
+  source_type: string;
+  nango_connection_id: string;
+  status: string;
+}
+
+interface VaultConnection {
+  id: string;
+  source_type: string;
+  nango_connection_id: string;
+  status: string;
 }
 
 // Provider icons (simplified representations)
@@ -54,12 +69,16 @@ const ProviderIcon = ({ provider }: { provider: string }) => {
 // Purple folder card component
 function VaultCard({
   vault,
+  connections,
   onEdit,
   onDelete,
+  onManageConnections,
 }: {
   vault: Vault;
+  connections: VaultConnection[];
   onEdit: (vault: Vault) => void;
   onDelete: (vault: Vault) => void;
+  onManageConnections: (vault: Vault) => void;
 }) {
   return (
     <Card className="group relative overflow-hidden p-4 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5">
@@ -75,11 +94,17 @@ function VaultCard({
 
           {/* Provider icons at bottom */}
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-            <ProviderIcon provider="gmail" />
-            <ProviderIcon provider="notion" />
-            {vault.document_count && vault.document_count > 2 && (
+            {connections.slice(0, 3).map((conn) => (
+              <ProviderIcon key={conn.id} provider={conn.source_type} />
+            ))}
+            {connections.length > 3 && (
               <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-600 shadow-sm">
-                +{vault.document_count - 2}
+                +{connections.length - 3}
+              </div>
+            )}
+            {connections.length === 0 && (
+              <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-400 shadow-sm">
+                No sources
               </div>
             )}
           </div>
@@ -116,6 +141,10 @@ function VaultCard({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => onManageConnections(vault)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Manage connections
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onEdit(vault)}>
             <Pencil className="mr-2 h-4 w-4" />
             Edit
@@ -137,10 +166,16 @@ function VaultCard({
 
 export default function VaultsPage() {
   const [vaults, setVaults] = useState<Vault[]>([]);
+  const [allConnections, setAllConnections] = useState<SourceConnection[]>([]);
+  const [vaultConnections, setVaultConnections] = useState<Record<string, VaultConnection[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isManageConnectionsOpen, setIsManageConnectionsOpen] = useState(false);
   const [editingVault, setEditingVault] = useState<Vault | null>(null);
+  const [managingVault, setManagingVault] = useState<Vault | null>(null);
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
+  const [createConnectionIds, setCreateConnectionIds] = useState<string[]>([]);
   const [formData, setFormData] = useState({ name: "", description: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -154,6 +189,10 @@ export default function VaultsPage() {
       );
       const data = await response.json();
       setVaults(data);
+      // Fetch connections for each vault
+      for (const vault of data) {
+        await fetchVaultConnections(vault.id);
+      }
     } catch (error) {
       console.error("Error fetching vaults:", error);
     } finally {
@@ -161,8 +200,37 @@ export default function VaultsPage() {
     }
   };
 
+  const fetchAllConnections = async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/v1/sources?workspace_id=${workspaceId}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setAllConnections(data);
+      }
+    } catch (error) {
+      console.error("Error fetching connections:", error);
+    }
+  };
+
+  const fetchVaultConnections = async (vaultId: string) => {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/v1/vaults/${vaultId}/connections`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setVaultConnections((prev) => ({ ...prev, [vaultId]: data }));
+      }
+    } catch (error) {
+      console.error("Error fetching vault connections:", error);
+    }
+  };
+
   useEffect(() => {
     fetchVaults();
+    fetchAllConnections();
   }, []);
 
   const handleCreate = async () => {
@@ -181,8 +249,23 @@ export default function VaultsPage() {
       });
 
       if (response.ok) {
+        const newVault = await response.json();
+
+        // Assign selected connections to the new vault
+        if (createConnectionIds.length > 0) {
+          await fetch(
+            `http://localhost:8000/v1/vaults/${newVault.id}/connections`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ connection_ids: createConnectionIds }),
+            }
+          );
+        }
+
         setIsCreateOpen(false);
         setFormData({ name: "", description: "" });
+        setCreateConnectionIds([]);
         fetchVaults();
       }
     } catch (error) {
@@ -248,6 +331,50 @@ export default function VaultsPage() {
     setIsEditOpen(true);
   };
 
+  const openManageConnectionsDialog = (vault: Vault) => {
+    setManagingVault(vault);
+    const currentConnections = vaultConnections[vault.id] || [];
+    setSelectedConnectionIds(currentConnections.map((c) => c.id));
+    setIsManageConnectionsOpen(true);
+  };
+
+  const handleSaveConnections = async () => {
+    if (!managingVault) return;
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/v1/vaults/${managingVault.id}/connections`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connection_ids: selectedConnectionIds }),
+        }
+      );
+
+      if (response.ok) {
+        setIsManageConnectionsOpen(false);
+        setManagingVault(null);
+        await fetchVaultConnections(managingVault.id);
+      } else {
+        const error = await response.json();
+        alert(error.detail || "Failed to update connections");
+      }
+    } catch (error) {
+      console.error("Error updating connections:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const toggleConnection = (connectionId: string) => {
+    setSelectedConnectionIds((prev) =>
+      prev.includes(connectionId)
+        ? prev.filter((id) => id !== connectionId)
+        : [...prev, connectionId]
+    );
+  };
+
   return (
     <div>
       {/* Header */}
@@ -266,7 +393,7 @@ export default function VaultsPage() {
               New
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Create new vault</DialogTitle>
               <DialogDescription>
@@ -296,11 +423,61 @@ export default function VaultsPage() {
                   placeholder="What is this vault for?"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium">Data sources</label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Select which integrations this vault should have access to.
+                </p>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-lg p-2">
+                  {allConnections.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No connections available. Add integrations first.
+                    </p>
+                  ) : (
+                    allConnections.map((connection) => (
+                      <div
+                        key={connection.id}
+                        className="flex items-center space-x-3 rounded-lg p-2 hover:bg-muted/50 cursor-pointer"
+                        onClick={() => {
+                          setCreateConnectionIds((prev) =>
+                            prev.includes(connection.id)
+                              ? prev.filter((id) => id !== connection.id)
+                              : [...prev, connection.id]
+                          );
+                        }}
+                      >
+                        <Checkbox
+                          checked={createConnectionIds.includes(connection.id)}
+                          onCheckedChange={() => {
+                            setCreateConnectionIds((prev) =>
+                              prev.includes(connection.id)
+                                ? prev.filter((id) => id !== connection.id)
+                                : [...prev, connection.id]
+                            );
+                          }}
+                        />
+                        <ProviderIcon provider={connection.source_type} />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium capitalize">
+                            {connection.source_type}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {connection.nango_connection_id}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => setIsCreateOpen(false)}
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setCreateConnectionIds([]);
+                }}
               >
                 Cancel
               </Button>
@@ -333,8 +510,10 @@ export default function VaultsPage() {
             <VaultCard
               key={vault.id}
               vault={vault}
+              connections={vaultConnections[vault.id] || []}
               onEdit={openEditDialog}
               onDelete={handleDelete}
+              onManageConnections={openManageConnectionsDialog}
             />
           ))}
         </div>
@@ -380,6 +559,71 @@ export default function VaultsPage() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Connections Dialog */}
+      <Dialog open={isManageConnectionsOpen} onOpenChange={setIsManageConnectionsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage connections</DialogTitle>
+            <DialogDescription>
+              Select which data sources should be accessible in &quot;{managingVault?.name}&quot;.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4 max-h-[300px] overflow-y-auto">
+            {allConnections.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No connections available. Add integrations first.
+              </p>
+            ) : (
+              allConnections.map((connection) => (
+                <div
+                  key={connection.id}
+                  className="flex items-center space-x-3 rounded-lg border p-3 hover:bg-muted/50 cursor-pointer"
+                  onClick={() => toggleConnection(connection.id)}
+                >
+                  <Checkbox
+                    checked={selectedConnectionIds.includes(connection.id)}
+                    onCheckedChange={() => toggleConnection(connection.id)}
+                  />
+                  <ProviderIcon provider={connection.source_type} />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium capitalize">
+                      {connection.source_type}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {connection.nango_connection_id}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={connection.status === "active" ? "default" : "secondary"}
+                    className={
+                      connection.status === "active"
+                        ? "bg-[#412bcf]/10 text-[#412bcf]"
+                        : ""
+                    }
+                  >
+                    {connection.status}
+                  </Badge>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsManageConnectionsOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSaveConnections} disabled={isSubmitting}>
+              {isSubmitting && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

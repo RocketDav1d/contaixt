@@ -4,8 +4,11 @@ Context builder for GraphRAG queries.
 1. Embed prompt → pgvector top-k chunk search (cosine similarity via HNSW)
 2. Rerank candidates with Cohere for precision
 3. Seed entities from entity_mentions for those chunks
-4. Neo4j traversal from seed entities up to `depth`
+4. Neo4j traversal from seed entities up to `depth` (unified graph, no vault filtering)
 5. Return chunks + graph facts for the answer composer
+
+Vault filtering is done by resolving vault_ids → connection_ids → document.source_connection_id.
+The knowledge graph is unified across the workspace (no vault filtering on graph traversal).
 """
 
 import logging
@@ -18,13 +21,28 @@ from sqlalchemy import select, text
 
 from app.config import settings
 from app.db import get_async_session
-from app.models import Document, DocumentChunk, EntityMention
+from app.models import Document, DocumentChunk, EntityMention, VaultSourceConnection
 
 logger = logging.getLogger(__name__)
 
 EMBED_MODEL = "text-embedding-3-small"
 RERANK_MODEL = "rerank-v3.5"
 RERANK_CANDIDATE_MULTIPLIER = 3  # Fetch 3x candidates, then rerank to top_k
+
+
+async def get_connection_ids_for_vaults(vault_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    """Get all source_connection_ids assigned to the given vaults."""
+    if not vault_ids:
+        return []
+
+    Session = get_async_session()
+    async with Session() as session:
+        result = await session.execute(
+            select(VaultSourceConnection.source_connection_id)
+            .where(VaultSourceConnection.vault_id.in_(vault_ids))
+            .distinct()
+        )
+        return [row[0] for row in result.fetchall()]
 
 
 async def embed_query(query: str) -> list[float]:
@@ -97,6 +115,10 @@ async def top_k_chunks(
     """
     Retrieve top-k similar chunks from pgvector, optionally filtered by vault_ids.
 
+    Vault filtering works by:
+    1. Resolving vault_ids → connection_ids via vault_source_connections
+    2. Joining chunks → documents and filtering by source_connection_id
+
     Uses cosine distance via the <=> operator with HNSW index for fast search.
     Lower distance = more similar (0 = identical, 2 = opposite).
     """
@@ -104,14 +126,23 @@ async def top_k_chunks(
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
     if vault_ids:
+        # Resolve vault_ids to connection_ids
+        connection_ids = await get_connection_ids_for_vaults(vault_ids)
+
+        if not connection_ids:
+            # No connections assigned to these vaults
+            return []
+
+        # Vector search with connection filter via document join
         sql = text("""
             SELECT
                 dc.id, dc.document_id, dc.idx, dc.text,
                 dc.start_offset, dc.end_offset,
                 dc.embedding <=> :embedding AS distance
             FROM document_chunks dc
+            JOIN documents d ON dc.document_id = d.id
             WHERE dc.workspace_id = :ws
-              AND dc.vault_id = ANY(:vault_ids)
+              AND d.source_connection_id = ANY(:connection_ids)
               AND dc.embedding IS NOT NULL
             ORDER BY dc.embedding <=> :embedding
             LIMIT :top_k
@@ -120,9 +151,10 @@ async def top_k_chunks(
             "ws": str(workspace_id),
             "embedding": embedding_str,
             "top_k": top_k,
-            "vault_ids": [str(v) for v in vault_ids],
+            "connection_ids": [str(c) for c in connection_ids],
         }
     else:
+        # No vault filter - search entire workspace
         sql = text("""
             SELECT
                 dc.id, dc.document_id, dc.idx, dc.text,
@@ -160,26 +192,52 @@ async def seed_entities(
     chunk_document_ids: list[uuid.UUID],
     vault_ids: list[uuid.UUID] | None = None,
 ) -> list[dict]:
-    """Get entity keys mentioned in the given documents (from entity_mentions table)."""
+    """Get entity keys mentioned in the given documents (from entity_mentions table).
+
+    If vault_ids is provided, filter to entities from documents belonging to
+    connections assigned to those vaults.
+    """
     if not chunk_document_ids:
         return []
 
     Session = get_async_session()
     async with Session() as session:
-        stmt = (
-            select(
-                EntityMention.entity_key,
-                EntityMention.entity_type,
-                EntityMention.entity_name,
-            )
-            .where(
-                EntityMention.workspace_id == workspace_id,
-                EntityMention.document_id.in_(chunk_document_ids),
-            )
-            .distinct(EntityMention.entity_key)
-        )
         if vault_ids:
-            stmt = stmt.where(EntityMention.vault_id.in_(vault_ids))
+            # Resolve vault_ids to connection_ids
+            connection_ids = await get_connection_ids_for_vaults(vault_ids)
+
+            if not connection_ids:
+                return []
+
+            # Filter by connection via document join
+            stmt = (
+                select(
+                    EntityMention.entity_key,
+                    EntityMention.entity_type,
+                    EntityMention.entity_name,
+                )
+                .join(Document, EntityMention.document_id == Document.id)
+                .where(
+                    EntityMention.workspace_id == workspace_id,
+                    EntityMention.document_id.in_(chunk_document_ids),
+                    Document.source_connection_id.in_(connection_ids),
+                )
+                .distinct(EntityMention.entity_key)
+            )
+        else:
+            # No vault filter
+            stmt = (
+                select(
+                    EntityMention.entity_key,
+                    EntityMention.entity_type,
+                    EntityMention.entity_name,
+                )
+                .where(
+                    EntityMention.workspace_id == workspace_id,
+                    EntityMention.document_id.in_(chunk_document_ids),
+                )
+                .distinct(EntityMention.entity_key)
+            )
 
         result = await session.execute(stmt)
         rows = result.fetchall()
@@ -194,9 +252,12 @@ async def neo4j_traverse_simple(
     workspace_id: uuid.UUID,
     entity_keys: list[str],
     depth: int = 2,
-    vault_ids: list[uuid.UUID] | None = None,
 ) -> list[dict]:
-    """Variable-length path matching with optional vault_id edge filtering."""
+    """Variable-length path matching in the unified knowledge graph.
+
+    The graph is workspace-unified (no vault filtering on edges).
+    This enables cross-vault knowledge discovery.
+    """
     if not entity_keys:
         return []
 
@@ -205,11 +266,6 @@ async def neo4j_traverse_simple(
         settings.neo4j_uri,
         auth=(settings.neo4j_username, settings.neo4j_password),
     )
-
-    # Build WHERE clause for vault filtering on edges
-    vault_filter = ""
-    if vault_ids:
-        vault_filter = "WHERE rel.vault_id IN $vault_ids"
 
     facts = []
     async with driver.session(database=settings.neo4j_database) as session:
@@ -221,7 +277,6 @@ async def neo4j_traverse_simple(
             WITH start, r, end
             UNWIND r AS rel
             WITH startNode(rel) AS a, endNode(rel) AS b, rel, type(rel) AS rel_type
-            """ + vault_filter + """
             RETURN DISTINCT
                 a.name AS from_name,
                 a.key AS from_key,
@@ -234,7 +289,6 @@ async def neo4j_traverse_simple(
             """,
             ws=ws,
             keys=entity_keys,
-            vault_ids=[str(v) for v in vault_ids] if vault_ids else [],
         )
         records = await result.data()
 
@@ -291,10 +345,10 @@ async def build_context(
     """
     Full context building pipeline:
     1. Embed prompt
-    2. Vector search for candidates (over-fetch for reranking)
+    2. Vector search for candidates (over-fetch for reranking, vault-filtered)
     3. Rerank with Cohere for precision
     4. Seed entity lookup (vault-filtered)
-    5. Neo4j traversal (vault-filtered edges)
+    5. Neo4j traversal (unified graph, no vault filtering)
     6. Return structured context
     """
     # 1. Embed prompt
@@ -314,17 +368,17 @@ async def build_context(
     # Enrich chunks with document metadata
     chunks = await enrich_chunks_with_docs(workspace_id, chunks)
 
-    # 4. Seed entities from top chunks
+    # 4. Seed entities from top chunks (vault-filtered)
     doc_ids = list({uuid.UUID(c["document_id"]) for c in chunks})
     seeds = await seed_entities(workspace_id, doc_ids, vault_ids)
     entity_keys = [s["key"] for s in seeds]
     logger.info("Found %d seed entities from top chunks", len(seeds))
 
-    # 5. Neo4j traversal (use simple version without APOC)
+    # 5. Neo4j traversal (unified graph - no vault filtering)
     facts = []
     if entity_keys:
         try:
-            facts = await neo4j_traverse_simple(workspace_id, entity_keys, depth, vault_ids)
+            facts = await neo4j_traverse_simple(workspace_id, entity_keys, depth)
             logger.info("Neo4j traversal returned %d facts", len(facts))
         except Exception as e:
             logger.warning("Neo4j traversal failed (continuing without graph): %s", e)
