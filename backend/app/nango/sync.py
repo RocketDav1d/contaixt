@@ -15,6 +15,7 @@ PROVIDER_TO_SOURCE = {
     "google-mail": "gmail",
     "gmail": "gmail",
     "notion": "notion",
+    "google-drive": "google-drive",
 }
 
 
