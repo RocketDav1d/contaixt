@@ -4,6 +4,27 @@
 
 ---
 
+## TL;DR - One Command Deploy
+
+```bash
+./deploy.sh
+```
+
+This script handles everything:
+1. Rebuilds containers (picks up new dependencies)
+2. Starts/restarts services
+3. Waits for API health check
+4. Runs all pending database migrations
+5. Restarts worker
+
+**Options:**
+```bash
+./deploy.sh          # Full deploy (rebuild + migrate)
+./deploy.sh --quick  # Skip rebuild (code-only changes, hot reload handles it)
+```
+
+---
+
 ## Architecture Overview
 
 ```
