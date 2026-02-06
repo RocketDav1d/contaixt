@@ -4,7 +4,6 @@ Splits on sentence boundaries where possible, falls back to hard split.
 """
 
 import re
-import uuid
 from dataclasses import dataclass
 
 CHUNK_SIZE = 1000  # characters
@@ -44,12 +43,14 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         sent_end = sent_start + len(sentence)
 
         if current and len(current) + len(sentence) + 1 > chunk_size:
-            chunks.append(Chunk(
-                idx=len(chunks),
-                text=current.strip(),
-                start_offset=current_start,
-                end_offset=current_start + len(current.strip()),
-            ))
+            chunks.append(
+                Chunk(
+                    idx=len(chunks),
+                    text=current.strip(),
+                    start_offset=current_start,
+                    end_offset=current_start + len(current.strip()),
+                )
+            )
             # Overlap: walk back to find overlap start
             overlap_text = current[-overlap:] if len(current) > overlap else current
             current_start = current_start + len(current) - len(overlap_text)
@@ -64,11 +65,13 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         pos = sent_end
 
     if current.strip():
-        chunks.append(Chunk(
-            idx=len(chunks),
-            text=current.strip(),
-            start_offset=current_start,
-            end_offset=current_start + len(current.strip()),
-        ))
+        chunks.append(
+            Chunk(
+                idx=len(chunks),
+                text=current.strip(),
+                start_offset=current_start,
+                end_offset=current_start + len(current.strip()),
+            )
+        )
 
     return chunks

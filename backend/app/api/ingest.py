@@ -40,10 +40,10 @@ async def _resolve_default_vault(workspace_id: uuid.UUID) -> uuid.UUID:
         result = await session.execute(
             select(ContextVault.id).where(
                 ContextVault.workspace_id == workspace_id,
-                ContextVault.is_default == True,
+                ContextVault.is_default,
             )
         )
-        return result.scalar_one()
+        return uuid.UUID(str(result.scalar_one()))
 
 
 @router.post("/document", response_model=IngestDocumentResponse, status_code=200)
