@@ -9,8 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import insert, select
 
-from app.db import get_async_session
 from app.api.ingest import IngestDocumentRequest, _resolve_default_vault, ingest_document
+from app.db import get_async_session
 from app.models import SourceConnection, SourceType
 from app.nango.client import list_records
 from app.nango.content import fetch_notion_content_map
@@ -80,9 +80,7 @@ async def list_sources(workspace_id: uuid.UUID):
     """List all source connections for a workspace."""
     Session = get_async_session()
     async with Session() as session:
-        result = await session.execute(
-            select(SourceConnection).where(SourceConnection.workspace_id == workspace_id)
-        )
+        result = await session.execute(select(SourceConnection).where(SourceConnection.workspace_id == workspace_id))
         rows = result.scalars().all()
     return [
         {
@@ -105,9 +103,7 @@ async def list_connections(workspace_id: uuid.UUID):
     """Legacy endpoint - use GET /v1/sources instead."""
     Session = get_async_session()
     async with Session() as session:
-        result = await session.execute(
-            select(SourceConnection).where(SourceConnection.workspace_id == workspace_id)
-        )
+        result = await session.execute(select(SourceConnection).where(SourceConnection.workspace_id == workspace_id))
         rows = result.scalars().all()
     return [
         {

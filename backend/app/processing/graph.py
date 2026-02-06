@@ -49,7 +49,10 @@ async def upsert_entities_and_relations(
             MERGE (d:Document {workspace_id: $ws, key: $key})
             SET d.document_id = $doc_id, d.vault_id = $vault_id
             """,
-            ws=ws, key=f"doc:{doc_id}", doc_id=doc_id, vault_id=v_id,
+            ws=ws,
+            key=f"doc:{doc_id}",
+            doc_id=doc_id,
+            vault_id=v_id,
         )
 
         # Upsert entity nodes + MENTIONS edges
