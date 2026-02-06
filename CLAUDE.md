@@ -82,6 +82,14 @@ Jobs retry up to 3 times with exponential backoff (30s × attempt). Handler regi
 
 Every table and Neo4j node carries a `workspace_id`. All queries filter by workspace.
 
+### MCP Server (`/mcp`)
+
+A FastMCP 2.0 server is mounted at `/mcp` on the API, exposing Contaixt over the Model Context Protocol (Streamable HTTP). MCP clients (Claude Desktop, Cursor, etc.) can connect to `http://localhost:8000/mcp`.
+
+- `backend/app/mcp/` — MCP module: `__init__.py` (FastMCP instance), `tools.py` (6 tools), `resources.py` (2 resources)
+- **Tools:** `search_context` (GraphRAG query), `list_workspaces`, `list_vaults`, `list_documents`, `get_document`, `get_job_stats`
+- **Resources:** `contaixt://workspaces`, `contaixt://workspaces/{workspace_id}/vaults`
+
 ### Key Directories
 
 - `backend/app/api/` — FastAPI route handlers (workspaces, ingest, query, sources, webhooks)
@@ -97,6 +105,7 @@ Every table and Neo4j node carries a `workspace_id`. All queries filter by works
 - **Neo4j** — knowledge graph (entities, relationships, document links)
 - **OpenAI** — `text-embedding-3-small` for embeddings, `gpt-4o-mini` for extraction and querying
 - **Nango** — OAuth and sync for Gmail and Notion
+- **FastMCP 2.0** — MCP server for LLM client integration (Streamable HTTP)
 - **Pydantic Settings** — configuration via environment variables (`backend/app/config.py`)
 
 ### Entity Resolution
