@@ -24,9 +24,7 @@ async def create_workspace(body: WorkspaceCreate):
     Session = get_async_session()
     ws_id = uuid.uuid4()
     async with Session() as session:
-        await session.execute(
-            insert(Workspace).values(id=ws_id, name=body.name)
-        )
+        await session.execute(insert(Workspace).values(id=ws_id, name=body.name))
         # Auto-create Default vault
         await session.execute(
             insert(ContextVault).values(

@@ -9,7 +9,7 @@ import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from app.api.ingest import ingest_document, IngestDocumentRequest
+from app.api.ingest import IngestDocumentRequest, ingest_document
 from app.config import settings
 from app.nango.client import list_records
 from app.nango.content import fetch_notion_content_map
@@ -63,7 +63,10 @@ async def nango_webhook(
 
     logger.info(
         "Sync webhook: connection=%s provider=%s model=%s modified_after=%s",
-        connection_id, provider_config_key, model, modified_after,
+        connection_id,
+        provider_config_key,
+        model,
+        modified_after,
     )
 
     ws_id, source_connection_id = await resolve_workspace_and_connection(connection_id, provider_config_key)

@@ -2,9 +2,7 @@
 Job type handlers. Each handler receives (workspace_id, payload_json).
 """
 
-import json
 import logging
-import time
 import uuid
 
 from sqlalchemy import delete, func, insert, select
@@ -21,14 +19,16 @@ async def _has_pending_job(workspace_id: uuid.UUID, job_type: JobType, document_
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(
-            select(func.count()).select_from(Job).where(
+            select(func.count())
+            .select_from(Job)
+            .where(
                 Job.workspace_id == workspace_id,
                 Job.type == job_type,
                 Job.status.in_([JobStatus.queued, JobStatus.running]),
                 Job.payload_json["document_id"].as_string() == document_id,
             )
         )
-        return result.scalar_one() > 0
+        return bool(result.scalar_one() > 0)
 
 
 async def handle_process_document(workspace_id: uuid.UUID, payload: dict) -> None:
@@ -186,7 +186,9 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
 
     logger.info(
         "EXTRACT: %d entities, %d relations for doc=%s",
-        len(entities), len(relations), document_id,
+        len(entities),
+        len(relations),
+        document_id,
     )
 
     # Enqueue graph upsert with extracted data
