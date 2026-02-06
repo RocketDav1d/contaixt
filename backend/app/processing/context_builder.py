@@ -1,15 +1,17 @@
 """
 Context builder for GraphRAG queries.
 
-1. Embed prompt → pgvector top-k chunk search
-2. Seed entities from entity_mentions for those chunks
-3. Neo4j traversal from seed entities up to `depth`
-4. Return chunks + graph facts for the answer composer
+1. Embed prompt → pgvector top-k chunk search (cosine similarity via HNSW)
+2. Rerank candidates with Cohere for precision
+3. Seed entities from entity_mentions for those chunks
+4. Neo4j traversal from seed entities up to `depth`
+5. Return chunks + graph facts for the answer composer
 """
 
 import logging
 import uuid
 
+import cohere
 from neo4j import AsyncGraphDatabase
 from openai import AsyncOpenAI
 from sqlalchemy import select, text
@@ -21,6 +23,8 @@ from app.models import Document, DocumentChunk, EntityMention
 logger = logging.getLogger(__name__)
 
 EMBED_MODEL = "text-embedding-3-small"
+RERANK_MODEL = "rerank-v3.5"
+RERANK_CANDIDATE_MULTIPLIER = 3  # Fetch 3x candidates, then rerank to top_k
 
 
 async def embed_query(query: str) -> list[float]:
@@ -30,13 +34,72 @@ async def embed_query(query: str) -> list[float]:
     return resp.data[0].embedding
 
 
+async def rerank_chunks(
+    query: str,
+    chunks: list[dict],
+    top_k: int = 20,
+) -> list[dict]:
+    """
+    Rerank chunks using Cohere's rerank API for improved relevance.
+
+    Two-stage retrieval:
+    1. Fast vector search returns candidates (already done)
+    2. Precise reranking scores each candidate against the query
+
+    Returns top_k chunks sorted by relevance score.
+    """
+    if not chunks or not settings.cohere_api_key:
+        # Skip reranking if no chunks or no API key configured
+        return chunks[:top_k]
+
+    try:
+        co = cohere.Client(api_key=settings.cohere_api_key)
+
+        # Prepare documents for reranking
+        documents = [chunk["text"] for chunk in chunks]
+
+        # Rerank
+        response = co.rerank(
+            model=RERANK_MODEL,
+            query=query,
+            documents=documents,
+            top_n=min(top_k, len(chunks)),
+            return_documents=False,  # We just need indices and scores
+        )
+
+        # Reorder chunks by rerank score
+        reranked_chunks = []
+        for result in response.results:
+            chunk = chunks[result.index].copy()
+            chunk["rerank_score"] = result.relevance_score
+            reranked_chunks.append(chunk)
+
+        logger.info(
+            "Reranked %d candidates to %d results (top score: %.3f)",
+            len(chunks),
+            len(reranked_chunks),
+            reranked_chunks[0]["rerank_score"] if reranked_chunks else 0,
+        )
+
+        return reranked_chunks
+
+    except Exception as e:
+        logger.warning("Reranking failed, falling back to vector results: %s", e)
+        return chunks[:top_k]
+
+
 async def top_k_chunks(
     workspace_id: uuid.UUID,
     query_embedding: list[float],
     top_k: int = 20,
     vault_ids: list[uuid.UUID] | None = None,
 ) -> list[dict]:
-    """Retrieve top-k similar chunks from pgvector, optionally filtered by vault_ids."""
+    """
+    Retrieve top-k similar chunks from pgvector, optionally filtered by vault_ids.
+
+    Uses cosine distance via the <=> operator with HNSW index for fast search.
+    Lower distance = more similar (0 = identical, 2 = opposite).
+    """
     Session = get_async_session()
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
@@ -228,17 +291,22 @@ async def build_context(
     """
     Full context building pipeline:
     1. Embed prompt
-    2. Top-k chunk retrieval (vault-filtered)
-    3. Seed entity lookup (vault-filtered)
-    4. Neo4j traversal (vault-filtered edges)
-    5. Return structured context
+    2. Vector search for candidates (over-fetch for reranking)
+    3. Rerank with Cohere for precision
+    4. Seed entity lookup (vault-filtered)
+    5. Neo4j traversal (vault-filtered edges)
+    6. Return structured context
     """
     # 1. Embed prompt
     query_embedding = await embed_query(prompt)
 
-    # 2. Top-k chunks
-    chunks = await top_k_chunks(workspace_id, query_embedding, top_k, vault_ids)
-    logger.info("Query found %d chunks for workspace=%s", len(chunks), workspace_id)
+    # 2. Vector search - fetch more candidates for reranking
+    candidate_count = top_k * RERANK_CANDIDATE_MULTIPLIER
+    chunks = await top_k_chunks(workspace_id, query_embedding, candidate_count, vault_ids)
+    logger.info("Vector search found %d candidates for workspace=%s", len(chunks), workspace_id)
+
+    # 3. Rerank candidates to get precise top_k
+    chunks = await rerank_chunks(prompt, chunks, top_k)
 
     if not chunks:
         return {"chunks": [], "facts": [], "seed_entities": []}
@@ -246,13 +314,13 @@ async def build_context(
     # Enrich chunks with document metadata
     chunks = await enrich_chunks_with_docs(workspace_id, chunks)
 
-    # 3. Seed entities from top chunks
+    # 4. Seed entities from top chunks
     doc_ids = list({uuid.UUID(c["document_id"]) for c in chunks})
     seeds = await seed_entities(workspace_id, doc_ids, vault_ids)
     entity_keys = [s["key"] for s in seeds]
     logger.info("Found %d seed entities from top chunks", len(seeds))
 
-    # 4. Neo4j traversal (use simple version without APOC)
+    # 5. Neo4j traversal (use simple version without APOC)
     facts = []
     if entity_keys:
         try:

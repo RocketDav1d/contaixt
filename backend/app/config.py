@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     nango_secret_key: str = ""
     nango_webhook_secret: str = ""
 
+    # Cohere (for reranking)
+    cohere_api_key: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
