@@ -18,8 +18,8 @@ from app.db import get_async_session
 from app.api.ingest import IngestDocumentRequest, ingest_document
 from app.models import ContextVault, SourceConnection, SourceType, VaultSourceConnection
 from app.nango.client import list_records
-from app.nango.content import fetch_notion_content_map
-from app.nango.normalizers import NORMALIZERS, normalize_notion
+from app.nango.content import fetch_drive_content_map, fetch_notion_content_map
+from app.nango.normalizers import NORMALIZERS, normalize_google_drive, normalize_notion
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +31,14 @@ NANGO_API_URL = "https://api.nango.dev"
 SOURCE_TO_PROVIDER = {
     "gmail": "google-mail",
     "notion": "notion",
+    "google-drive": "google-drive",
 }
 
 # Nango sync model names per provider
 DEFAULT_MODELS = {
     "google-mail": "GmailEmail",
     "notion": "ContentMetadata",
+    "google-drive": "documents",
 }
 
 
@@ -75,7 +77,7 @@ async def create_connect_session(body: ConnectSessionRequest):
             "id": body.user_id,
         },
         # Only include integrations we support
-        "allowed_integrations": ["google-mail", "notion"],
+        "allowed_integrations": ["google-mail", "notion", "google-drive"],
     }
 
     if body.user_email:
@@ -154,13 +156,37 @@ class RegisterConnectionResponse(BaseModel):
 
 @router.post("/nango/register", response_model=RegisterConnectionResponse, status_code=201)
 async def register_connection(body: RegisterConnectionRequest):
-    """Register a new OAuth connection and auto-assign to default vault."""
-    default_vault_id = await _get_default_vault(body.workspace_id)
+    """Register a new OAuth connection and auto-assign to default vault.
 
+    Idempotent: returns existing connection if already registered.
+    """
     Session = get_async_session()
-    conn_id = uuid.uuid4()
     async with Session() as session:
-        # Create the connection (workspace-level, no vault_id)
+        # Check if connection already exists
+        result = await session.execute(
+            select(SourceConnection).where(
+                SourceConnection.workspace_id == body.workspace_id,
+                SourceConnection.nango_connection_id == body.nango_connection_id,
+            )
+        )
+        existing = result.scalars().first()
+
+        if existing:
+            # Return existing connection
+            vault_ids = await _get_vault_ids_for_connection(existing.id)
+            return RegisterConnectionResponse(
+                id=existing.id,
+                workspace_id=existing.workspace_id,
+                source_type=existing.source_type,
+                nango_connection_id=existing.nango_connection_id,
+                vault_ids=vault_ids,
+            )
+
+    # Create new connection
+    default_vault_id = await _get_default_vault(body.workspace_id)
+    conn_id = uuid.uuid4()
+
+    async with Session() as session:
         await session.execute(
             insert(SourceConnection).values(
                 id=conn_id,
@@ -294,10 +320,17 @@ async def backfill(source_type: SourceType, workspace_id: uuid.UUID):
     )
     logger.info("Backfill: fetched %d records from Nango for %s", len(records), source_type.value)
 
-    # Notion needs extra content fetch; Gmail has body inline
+    # Notion and Google Drive need extra content fetch; Gmail has body inline
     if provider_key == "notion":
         content_map = await fetch_notion_content_map(conn.nango_connection_id, records)
         docs = normalize_notion(records, content_map=content_map)
+    elif provider_key == "google-drive":
+        # Fetch content for all supported file types:
+        # - Google Workspace (Docs, Sheets, Slides): export via API
+        # - Binary files (PDF, DOCX, XLSX, PPTX): download and extract
+        # - Plain text files: download directly
+        content_map = await fetch_drive_content_map(conn.nango_connection_id, records)
+        docs = normalize_google_drive(records, content_map=content_map)
     else:
         normalizer = NORMALIZERS[provider_key]
         docs = normalizer(records)
