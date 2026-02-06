@@ -23,6 +23,11 @@
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
     --ring: 0 0% 3.9%;
+    --brand-purple-1: 258 83% 62%;
+    --brand-purple-2: 252 89% 58%;
+    --brand-purple-3: 244 78% 52%;
+    --brand-glow: 262 100% 70%;
+    --surface-soft: 250 100% 98%;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -61,6 +66,11 @@
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
     --ring: 0 0% 83.1%;
+    --brand-purple-1: 258 92% 68%;
+    --brand-purple-2: 252 92% 64%;
+    --brand-purple-3: 244 82% 58%;
+    --brand-glow: 262 100% 74%;
+    --surface-soft: 240 6% 12%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
@@ -83,5 +93,63 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes glow {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .text-gradient-purple {
+    background-image: linear-gradient(
+      120deg,
+      hsl(var(--brand-purple-1)),
+      hsl(var(--brand-purple-3))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-glow {
+    animation: glow 3.6s ease-in-out infinite;
+  }
+
+  .animate-typing {
+    animation: typing 1.2s ease-in-out infinite;
   }
 }
