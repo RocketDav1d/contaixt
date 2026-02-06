@@ -34,7 +34,16 @@ alembic -c backend/alembic/alembic.ini upgrade head        # Apply migrations
 alembic -c backend/alembic/alembic.ini revision -m "desc"  # Create new migration
 ```
 
-No test suite or linter is currently configured.
+### Linting & Type-Checking (Backend)
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt   # einmalig
+ruff check app && ruff format app                         # Linting + Format
+mypy app                                                  # Type-Checking (benötigt installierte Dependencies)
+```
+
+Config: `backend/pyproject.toml` (Ruff + mypy). Dev-Tools: `backend/requirements-dev.txt`.
 
 ## Architecture
 
