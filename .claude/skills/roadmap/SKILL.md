@@ -402,3 +402,141 @@ Cypher pattern:
 * API Client für alle Backend-Endpoints
 * Error Handling + Loading States
   **Done:** Frontend kommuniziert sicher mit Backend.
+
+---
+
+## 11) Vector Search Improvements
+
+> Upgrade pgvector with HNSW indexing, cosine similarity, and Cohere reranking for better retrieval quality.
+
+**F11.1 – HNSW Index**
+
+* Add migration `003_hnsw_index.py`
+* Create HNSW index on `document_chunks.embedding` with `vector_cosine_ops`
+* Parameters: m=16, ef_construction=64
+  **Done:** ~100x faster similarity search at scale.
+
+**F11.2 – Cosine Similarity**
+
+* Already using `<=>` operator (cosine distance in pgvector)
+* HNSW index configured with `vector_cosine_ops`
+* Lower distance = more similar (0-2 range)
+  **Done:** Semantically appropriate distance metric for text.
+
+**F11.3 – Cohere Reranking**
+
+* Add `cohere` to requirements.txt
+* Add `COHERE_API_KEY` to config
+* Two-stage retrieval: fetch 3x candidates, rerank to top_k
+* Model: `rerank-v3.5`
+* Graceful fallback if API unavailable
+  **Done:** Significantly improved retrieval precision.
+
+---
+
+## 12) Vault-Connection Restructure
+
+> Decouple vaults from connections with a many-to-many relationship. Connections exist at workspace level, vaults select which connections to include. Enables flexible data organization.
+
+**F12.1 – Schema Restructure**
+
+* New join table `vault_source_connections(vault_id, source_connection_id)`
+* Remove `vault_id` from: `source_connections`, `documents`, `document_chunks`, `entity_mentions`
+* Add `source_connection_id` to `documents` (link to ingesting connection)
+* Migration `004_vault_connection_restructure.py` with full backfill logic
+  **Done:** Cleaner data model with flexible vault membership.
+
+**F12.2 – Model Updates**
+
+* New `VaultSourceConnection` model (join table)
+* `SourceConnection`: Remove vault_id, now workspace-level
+* `Document`: Replace vault_id with source_connection_id
+* `DocumentChunk`, `EntityMention`: Inherit vault via document → connection
+  **Done:** Models reflect new architecture.
+
+**F12.3 – Vault Filtering via Connections**
+
+* `context_builder.py`: New `get_connection_ids_for_vaults()` helper
+* `top_k_chunks()`: Filter by connection_id via document join
+* `seed_entities()`: Filter by connection_id via document join
+* `neo4j_traverse_simple()`: Unified graph (no vault filtering on edges)
+  **Done:** Vault filtering works through connection membership.
+
+**F12.4 – API Updates**
+
+* `vaults.py`: Manage vault-connection assignments
+* `sources.py`: Connections are workspace-level, assign to vaults
+* `ingest.py`: Use source_connection_id on documents
+* `webhooks.py`: Resolve connection for incoming syncs
+  **Done:** APIs support new data model.
+
+**F12.5 – Frontend Updates**
+
+* Vaults page: Show/manage assigned connections
+* Integrations page: Assign connections to vaults
+  **Done:** UI supports vault-connection management.
+
+---
+
+### Architecture: Before vs After
+
+**Before (vault_id everywhere):**
+```
+Vault ──1:N──> Connection ──1:N──> Document ──1:N──> Chunk
+                                              └──> EntityMention
+```
+
+**After (many-to-many via join table):**
+```
+Workspace ──1:N──> Connection ──1:N──> Document ──1:N──> Chunk
+                       │                           └──> EntityMention
+                       │
+              vault_source_connections (M:N)
+                       │
+Workspace ──1:N──> Vault
+```
+
+**Benefits:**
+- Same connection can be in multiple vaults
+- Documents stored once, accessible from multiple vaults
+- Cleaner separation: connections = data sources, vaults = retrieval scopes
+- Unified knowledge graph across workspace (cross-vault discovery)
+
+---
+
+## 13) Nango Frontend Integration
+
+> Enable users to connect their own OAuth data sources through the UI using Nango's frontend SDK and Connect UI. No more manual connection ID entry.
+
+**F13.1 – Backend Connect Session Endpoint**
+
+* `POST /v1/sources/nango/connect-session` – Create session token for frontend OAuth flow
+* Request: `{workspace_id, user_id, user_email?, user_display_name?}`
+* Response: `{token, expires_at}`
+* Calls Nango API `POST /connect/sessions` with `allowed_integrations: ["google-mail", "notion"]`
+  **Done:** Backend can create secure session tokens for frontend.
+
+**F13.2 – Frontend SDK Integration**
+
+* Install `@nangohq/frontend` package
+* Initialize Nango with connect session token
+* Use `openConnectUI()` method to launch OAuth flow
+* Handle events: `close`, `connect`
+  **Done:** Frontend can initiate OAuth flows.
+
+**F13.3 – Integrations Page Rewrite**
+
+* Remove manual connection ID input form
+* Add "Add integration" button that triggers Nango Connect UI
+* Session token fetched from backend before opening modal
+* On successful connect: refresh connections list
+* On modal close: refresh after delay (webhook may have created connection)
+  **Done:** User-friendly OAuth integration flow.
+
+**F13.4 – Connection Lifecycle**
+
+* User clicks "Add integration" → backend creates session → Nango UI opens
+* User authorizes in Nango UI → Nango sends webhook → backend creates `source_connection`
+* Frontend refreshes and shows new connection
+* User can trigger "Sync" to backfill data
+  **Done:** Complete flow from UI to ingested data.
