@@ -6,7 +6,9 @@ Claims jobs via SELECT ... FOR UPDATE SKIP LOCKED for crash-safety.
 import asyncio
 import logging
 import traceback
-from datetime import datetime, timedelta, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,10 +23,11 @@ POLL_INTERVAL = 2  # seconds
 BACKOFF_BASE = 30  # seconds
 
 # Will be populated by register_handler()
-_handlers: dict[str, object] = {}
+JobHandler = Callable[[Any, Any], Awaitable[None]]
+_handlers: dict[str, JobHandler] = {}
 
 
-def register_handler(job_type: str, fn):
+def register_handler(job_type: str, fn: JobHandler) -> None:
     """Register an async handler for a job type."""
     _handlers[job_type] = fn
 
@@ -56,15 +59,13 @@ async def claim_job(session: AsyncSession) -> dict | None:
 
 async def mark_done(session: AsyncSession, job_id) -> None:
     await session.execute(
-        update(Job)
-        .where(Job.id == job_id)
-        .values(status=JobStatus.done, updated_at=datetime.now(timezone.utc))
+        update(Job).where(Job.id == job_id).values(status=JobStatus.done, updated_at=datetime.now(UTC))
     )
     await session.commit()
 
 
 async def mark_failed(session: AsyncSession, job_id, error: str, attempts: int) -> None:
-    run_after = datetime.now(timezone.utc) + timedelta(seconds=BACKOFF_BASE * attempts)
+    run_after = datetime.now(UTC) + timedelta(seconds=BACKOFF_BASE * attempts)
     await session.execute(
         update(Job)
         .where(Job.id == job_id)
@@ -72,7 +73,7 @@ async def mark_failed(session: AsyncSession, job_id, error: str, attempts: int) 
             status=JobStatus.queued if attempts < MAX_ATTEMPTS else JobStatus.failed,
             last_error=error[:4000],
             run_after=run_after if attempts < MAX_ATTEMPTS else None,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
     )
     await session.commit()

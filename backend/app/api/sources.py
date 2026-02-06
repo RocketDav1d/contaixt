@@ -269,9 +269,7 @@ async def list_connections(workspace_id: uuid.UUID):
     """Legacy endpoint - use GET /v1/sources instead."""
     Session = get_async_session()
     async with Session() as session:
-        result = await session.execute(
-            select(SourceConnection).where(SourceConnection.workspace_id == workspace_id)
-        )
+        result = await session.execute(select(SourceConnection).where(SourceConnection.workspace_id == workspace_id))
         rows = result.scalars().all()
     return [
         {

@@ -117,7 +117,10 @@ async def _handle_sync_event(payload: dict):
 
     logger.info(
         "Sync webhook: connection=%s provider=%s model=%s modified_after=%s",
-        connection_id, provider_config_key, model, modified_after,
+        connection_id,
+        provider_config_key,
+        model,
+        modified_after,
     )
 
     ws_id, source_connection_id = await resolve_workspace_and_connection(connection_id, provider_config_key)
