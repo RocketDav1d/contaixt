@@ -17,6 +17,7 @@ dependencies = [
     "httpx>=0.28",
     "openai>=1.59",
     "alembic>=1.14",
+    "fastmcp>=2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,7 @@ known-first-party = ["app"]
 # Logging vor Imports in main.py ist Absicht (Format für alle Logger)
 [tool.ruff.lint.per-file-ignores]
 "app/main.py" = ["E402"]
+"app/mcp/__init__.py" = ["E402"]
 
 # ---------------------------------------------------------------------------
 # mypy – Type checking
@@ -68,4 +70,8 @@ plugins = ["sqlalchemy.ext.mypy.plugin"]
 
 [[tool.mypy.overrides]]
 module = ["pgvector.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["fastmcp.*"]
 ignore_missing_imports = true
