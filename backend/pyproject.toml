@@ -1,0 +1,77 @@
+[project]
+name = "contaixt-backend"
+version = "0.1.0"
+description = "Contaixt GraphRAG API and worker"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "neo4j>=5.27",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "httpx>=0.28",
+    "openai>=1.59",
+    "alembic>=1.14",
+    "fastmcp>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff – Linting (ersetzt flake8, pylint, isort, …)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["app"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # Pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# Logging vor Imports in main.py ist Absicht (Format für alle Logger)
+[tool.ruff.lint.per-file-ignores]
+"app/main.py" = ["E402"]
+"app/mcp/__init__.py" = ["E402"]
+
+# ---------------------------------------------------------------------------
+# mypy – Type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = false
+strict_optional = true
+# SQLAlchemy-Plugin für Mapped[] etc.; nur aktiv wenn sqlalchemy installiert ist (z. B. in venv)
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+
+[[tool.mypy.overrides]]
+module = ["pgvector.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["fastmcp.*"]
+ignore_missing_imports = true

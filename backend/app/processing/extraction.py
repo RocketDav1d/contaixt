@@ -6,7 +6,7 @@ and MENTIONS relations from document text.
 
 import json
 import logging
-import uuid
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -82,7 +82,7 @@ async def extract_entities_relations(
 
     raw = resp.choices[0].message.content or "{}"
     try:
-        data = json.loads(raw)
+        data: dict[str, Any] = json.loads(raw)
     except json.JSONDecodeError:
         logger.warning("Failed to parse LLM JSON: %s", raw[:200])
         data = {"entities": [], "relations": []}
@@ -97,7 +97,24 @@ async def extract_entities_relations(
     return data
 
 
-IGNORE_DOMAINS = {"gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com", "gmx.de", "gmx.net", "web.de", "icloud.com", "me.com", "t-online.de", "live.com", "aol.com", "protonmail.com", "proton.me", "mail.com"}
+IGNORE_DOMAINS = {
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "gmx.de",
+    "gmx.net",
+    "web.de",
+    "icloud.com",
+    "me.com",
+    "t-online.de",
+    "live.com",
+    "aol.com",
+    "protonmail.com",
+    "proton.me",
+    "mail.com",
+}
 
 
 def _heuristic_entities(author_name: str, author_email: str) -> list[dict]:
@@ -105,18 +122,22 @@ def _heuristic_entities(author_name: str, author_email: str) -> list[dict]:
     entities = []
 
     if author_email and "@" in author_email:
-        entities.append({
-            "type": "Person",
-            "name": author_name or author_email.split("@")[0],
-            "email": author_email,
-        })
+        entities.append(
+            {
+                "type": "Person",
+                "name": author_name or author_email.split("@")[0],
+                "email": author_email,
+            }
+        )
         domain = author_email.split("@")[1].lower()
         if domain not in IGNORE_DOMAINS:
             company_name = domain.split(".")[0].capitalize()
-            entities.append({
-                "type": "Company",
-                "name": company_name,
-                "domain": domain,
-            })
+            entities.append(
+                {
+                    "type": "Company",
+                    "name": company_name,
+                    "domain": domain,
+                }
+            )
 
     return entities
