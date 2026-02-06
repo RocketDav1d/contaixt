@@ -501,3 +501,42 @@ Workspace ──1:N──> Vault
 - Documents stored once, accessible from multiple vaults
 - Cleaner separation: connections = data sources, vaults = retrieval scopes
 - Unified knowledge graph across workspace (cross-vault discovery)
+
+---
+
+## 13) Nango Frontend Integration
+
+> Enable users to connect their own OAuth data sources through the UI using Nango's frontend SDK and Connect UI. No more manual connection ID entry.
+
+**F13.1 – Backend Connect Session Endpoint**
+
+* `POST /v1/sources/nango/connect-session` – Create session token for frontend OAuth flow
+* Request: `{workspace_id, user_id, user_email?, user_display_name?}`
+* Response: `{token, expires_at}`
+* Calls Nango API `POST /connect/sessions` with `allowed_integrations: ["google-mail", "notion"]`
+  **Done:** Backend can create secure session tokens for frontend.
+
+**F13.2 – Frontend SDK Integration**
+
+* Install `@nangohq/frontend` package
+* Initialize Nango with connect session token
+* Use `openConnectUI()` method to launch OAuth flow
+* Handle events: `close`, `connect`
+  **Done:** Frontend can initiate OAuth flows.
+
+**F13.3 – Integrations Page Rewrite**
+
+* Remove manual connection ID input form
+* Add "Add integration" button that triggers Nango Connect UI
+* Session token fetched from backend before opening modal
+* On successful connect: refresh connections list
+* On modal close: refresh after delay (webhook may have created connection)
+  **Done:** User-friendly OAuth integration flow.
+
+**F13.4 – Connection Lifecycle**
+
+* User clicks "Add integration" → backend creates session → Nango UI opens
+* User authorizes in Nango UI → Nango sends webhook → backend creates `source_connection`
+* Frontend refreshes and shows new connection
+* User can trigger "Sync" to backfill data
+  **Done:** Complete flow from UI to ingested data.
