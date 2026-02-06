@@ -22,7 +22,11 @@ async def resolve_workspace_and_connection(
     nango_connection_id: str,
     provider_config_key: str,
 ) -> tuple[uuid.UUID, uuid.UUID] | tuple[None, None]:
-    """Look up the (workspace_id, vault_id) for a given Nango connection."""
+    """Look up the (workspace_id, source_connection_id) for a given Nango connection.
+
+    Returns the workspace ID and the internal source_connection_id (not vault_id).
+    The source_connection_id is used when ingesting documents.
+    """
     source_type = PROVIDER_TO_SOURCE.get(provider_config_key)
     if not source_type:
         return None, None
@@ -30,10 +34,10 @@ async def resolve_workspace_and_connection(
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(
-            select(SourceConnection.workspace_id, SourceConnection.vault_id).where(
+            select(SourceConnection.workspace_id, SourceConnection.id).where(
                 SourceConnection.nango_connection_id == nango_connection_id,
                 SourceConnection.source_type == source_type,
             )
         )
         row = result.first()
-        return (row.workspace_id, row.vault_id) if row else (None, None)
+        return (row.workspace_id, row.id) if row else (None, None)

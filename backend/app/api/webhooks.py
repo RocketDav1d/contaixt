@@ -69,7 +69,7 @@ async def nango_webhook(
         modified_after,
     )
 
-    ws_id, vault_id = await resolve_workspace_and_connection(connection_id, provider_config_key)
+    ws_id, source_connection_id = await resolve_workspace_and_connection(connection_id, provider_config_key)
     if not ws_id:
         logger.warning("No workspace found for nango connection=%s", connection_id)
         return {"status": "no_workspace"}
@@ -98,7 +98,13 @@ async def nango_webhook(
     for doc in docs:
         if not doc.get("content_text"):
             continue
-        await ingest_document(IngestDocumentRequest(workspace_id=ws_id, vault_id=vault_id, **doc))
+        await ingest_document(
+            IngestDocumentRequest(
+                workspace_id=ws_id,
+                source_connection_id=source_connection_id,
+                **doc
+            )
+        )
         ingested += 1
 
     logger.info("Ingested %d documents for workspace=%s", ingested, ws_id)
