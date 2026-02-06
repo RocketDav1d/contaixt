@@ -7,8 +7,10 @@ import re
 import uuid
 from dataclasses import dataclass
 
-CHUNK_SIZE = 1000  # characters
-CHUNK_OVERLAP = 200
+# Approximate 200–400 tokens per chunk (~4 chars/token)
+CHUNK_SIZE = 1200  # characters
+# 10–15% overlap for evidence chunks
+CHUNK_OVERLAP = 150
 
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 

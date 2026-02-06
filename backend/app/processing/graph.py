@@ -58,6 +58,9 @@ async def upsert_entities_and_relations(
             etype = ent.get("type", "unknown").lower()
             label = LABEL_MAP.get(etype, "Topic")
             key = entity_keys.get(name, f"{etype}:name:{name.lower()}")
+            aliases = ent.get("aliases") or []
+            description = ent.get("description") or ""
+            evidence_chunk_ids = ent.get("evidence_chunk_ids") or []
 
             # MERGE entity node
             await session.run(
@@ -65,13 +68,17 @@ async def upsert_entities_and_relations(
                 MERGE (e:{label} {{workspace_id: $ws, key: $key}})
                 SET e.name = $name,
                     e.email = $email,
-                    e.domain = $domain
+                    e.domain = $domain,
+                    e.aliases = $aliases,
+                    e.description = $description
                 """,
                 ws=ws,
                 key=key,
                 name=name,
                 email=ent.get("email", ""),
                 domain=ent.get("domain", ""),
+                aliases=aliases,
+                description=description,
             )
 
             # MERGE Document -[MENTIONS]-> Entity
@@ -82,13 +89,18 @@ async def upsert_entities_and_relations(
                 MERGE (d)-[r:MENTIONS]->(e)
                 SET r.document_id = $doc_id,
                     r.vault_id = $vault_id,
-                    r.confidence = 1.0
+                    r.confidence = $confidence,
+                    r.evidence = $evidence,
+                    r.evidence_chunk_ids = $evidence_chunk_ids
                 """,
                 ws=ws,
                 doc_key=f"doc:{doc_id}",
                 entity_key=key,
                 doc_id=doc_id,
                 vault_id=v_id,
+                confidence=ent.get("confidence", 1.0),
+                evidence=ent.get("evidence", "")[:200],
+                evidence_chunk_ids=evidence_chunk_ids,
             )
 
         # Inter-entity relations (WORKS_AT, HAS_CONTACT, etc.)
@@ -100,6 +112,8 @@ async def upsert_entities_and_relations(
             to_key = entity_keys.get(to_name)
             if not from_key or not to_key:
                 continue
+            qualifiers = rel.get("qualifiers") or {}
+            evidence_chunk_ids = rel.get("evidence_chunk_ids") or []
 
             await session.run(
                 f"""
@@ -108,7 +122,11 @@ async def upsert_entities_and_relations(
                 MERGE (a)-[r:{rel_type}]->(b)
                 SET r.document_id = $doc_id,
                     r.vault_id = $vault_id,
-                    r.evidence = $evidence
+                    r.evidence = $evidence,
+                    r.evidence_chunk_ids = $evidence_chunk_ids,
+                    r.time = $time,
+                    r.location = $location,
+                    r.confidence = $confidence
                 """,
                 ws=ws,
                 from_key=from_key,
@@ -116,6 +134,10 @@ async def upsert_entities_and_relations(
                 doc_id=doc_id,
                 vault_id=v_id,
                 evidence=rel.get("evidence", "")[:200],
+                evidence_chunk_ids=evidence_chunk_ids,
+                time=qualifiers.get("time", ""),
+                location=qualifiers.get("location", ""),
+                confidence=qualifiers.get("confidence", 0.0),
             )
 
     await driver.close()

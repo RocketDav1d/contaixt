@@ -51,6 +51,12 @@ class JobStatus(str, enum.Enum):
     failed = "failed"
 
 
+class ChunkType(str, enum.Enum):
+    evidence = "evidence"
+    entity = "entity"
+    relation = "relation"
+
+
 # ---------------------------------------------------------------------------
 # Tables
 # ---------------------------------------------------------------------------
@@ -126,6 +132,8 @@ class DocumentChunk(Base):
     __tablename__ = "document_chunks"
     __table_args__ = (
         Index("ix_chunk_workspace_doc", "workspace_id", "document_id"),
+        Index("ix_chunk_workspace_type", "workspace_id", "chunk_type"),
+        UniqueConstraint("workspace_id", "chunk_key", name="uq_chunk_workspace_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -133,10 +141,35 @@ class DocumentChunk(Base):
     vault_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_type: Mapped[ChunkType] = mapped_column(
+        Enum(ChunkType, name="chunk_type_enum"),
+        default=ChunkType.evidence,
+        nullable=False,
+    )
+    chunk_key: Mapped[str] = mapped_column(String(512), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding = mapped_column(Vector(1536), nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChunkEmbedding(Base):
+    __tablename__ = "chunk_embeddings"
+    __table_args__ = (
+        UniqueConstraint("chunk_id", "kind", name="uq_chunk_embedding_kind"),
+        Index("ix_chunk_embedding_workspace", "workspace_id"),
+        Index("ix_chunk_embedding_chunk", "chunk_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    vault_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    chunk_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding = mapped_column(Vector(1536), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
