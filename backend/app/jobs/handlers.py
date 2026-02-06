@@ -2,9 +2,7 @@
 Job type handlers. Each handler receives (workspace_id, payload_json).
 """
 
-import json
 import logging
-import time
 import uuid
 
 from sqlalchemy import delete, func, insert, select
@@ -21,14 +19,16 @@ async def _has_pending_job(workspace_id: uuid.UUID, job_type: JobType, document_
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(
-            select(func.count()).select_from(Job).where(
+            select(func.count())
+            .select_from(Job)
+            .where(
                 Job.workspace_id == workspace_id,
                 Job.type == job_type,
                 Job.status.in_([JobStatus.queued, JobStatus.running]),
                 Job.payload_json["document_id"].as_string() == document_id,
             )
         )
-        return result.scalar_one() > 0
+        return bool(result.scalar_one() > 0)
 
 
 async def handle_process_document(workspace_id: uuid.UUID, payload: dict) -> None:
@@ -88,7 +88,6 @@ async def handle_chunk_document(workspace_id: uuid.UUID, payload: dict) -> None:
                 insert(DocumentChunk).values(
                     id=uuid.uuid4(),
                     workspace_id=workspace_id,
-                    vault_id=doc.vault_id,
                     document_id=document_id,
                     idx=ch.idx,
                     text=ch.text,
@@ -176,7 +175,6 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
                 insert(EntityMention).values(
                     id=uuid.uuid4(),
                     workspace_id=workspace_id,
-                    vault_id=doc.vault_id,
                     document_id=document_id,
                     entity_key=entity_keys.get(name, ""),
                     entity_type=ent.get("type", "unknown"),
@@ -188,7 +186,9 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
 
     logger.info(
         "EXTRACT: %d entities, %d relations for doc=%s",
-        len(entities), len(relations), document_id,
+        len(entities),
+        len(relations),
+        document_id,
     )
 
     # Enqueue graph upsert with extracted data
@@ -197,7 +197,6 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
         JobType.UPSERT_GRAPH,
         {
             "document_id": str(document_id),
-            "vault_id": str(doc.vault_id),
             "entities": entities,
             "relations": relations,
             "entity_keys": entity_keys,
@@ -206,11 +205,13 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
 
 
 async def handle_upsert_graph(workspace_id: uuid.UUID, payload: dict) -> None:
-    """Upsert extracted entities/relations into Neo4j."""
+    """Upsert extracted entities/relations into Neo4j.
+
+    The graph is now unified (no vault filtering), so vault_id is no longer used.
+    """
     from app.processing.graph import upsert_entities_and_relations
 
     document_id = uuid.UUID(payload["document_id"])
-    vault_id = uuid.UUID(payload["vault_id"]) if payload.get("vault_id") else None
     entities = payload.get("entities", [])
     relations = payload.get("relations", [])
     entity_keys = payload.get("entity_keys", {})
@@ -219,7 +220,6 @@ async def handle_upsert_graph(workspace_id: uuid.UUID, payload: dict) -> None:
 
     await upsert_entities_and_relations(
         workspace_id=workspace_id,
-        vault_id=vault_id,
         document_id=document_id,
         entities=entities,
         relations=relations,
