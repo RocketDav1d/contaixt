@@ -513,7 +513,7 @@ Workspace ──1:N──> Vault
 * `POST /v1/sources/nango/connect-session` – Create session token for frontend OAuth flow
 * Request: `{workspace_id, user_id, user_email?, user_display_name?}`
 * Response: `{token, expires_at}`
-* Calls Nango API `POST /connect/sessions` with `allowed_integrations: ["google-mail", "notion"]`
+* Calls Nango API `POST /connect/sessions` with `allowed_integrations: ["google-mail", "notion", "google-drive"]`
   **Done:** Backend can create secure session tokens for frontend.
 
 **F13.2 – Frontend SDK Integration**
@@ -540,3 +540,273 @@ Workspace ──1:N──> Vault
 * Frontend refreshes and shows new connection
 * User can trigger "Sync" to backfill data
   **Done:** Complete flow from UI to ingested data.
+
+---
+
+## 14) Google Drive Integration
+
+> Add Google Drive as a data source. Unlike Gmail/Notion (which have inline content), Drive contains **binary files** that require content extraction based on MIME type.
+
+### Architecture Overview
+
+```
+Nango OAuth ──> File Metadata Sync ──> Backfill Trigger
+                                              │
+                                              ▼
+                                    ┌─────────────────┐
+                                    │  PROCESS_FILE   │  (new job type)
+                                    │     Job         │
+                                    └────────┬────────┘
+                                              │
+                    ┌─────────────────────────┼─────────────────────────┐
+                    │                         │                         │
+                    ▼                         ▼                         ▼
+            Google Docs/Sheets         PDF Files              Office Files
+            (Export via API)         (pdfplumber)         (python-docx, openpyxl)
+                    │                         │                         │
+                    └─────────────────────────┴─────────────────────────┘
+                                              │
+                                              ▼
+                                    Standard Ingest Pipeline
+                                    (chunk → embed → extract → graph)
+```
+
+### Nango Proxy for Content Fetching
+
+Nango's Proxy enables authenticated Google Drive API calls:
+```bash
+curl "https://api.nango.dev/proxy/drive/v3/files/{fileId}?alt=media" \
+  -H "Authorization: Bearer <NANGO-SECRET-KEY>" \
+  -H "Provider-Config-Key: google-drive" \
+  -H "Connection-Id: <CONNECTION-ID>"
+```
+
+For Google Docs/Sheets export:
+```bash
+curl "https://api.nango.dev/proxy/drive/v3/files/{fileId}/export?mimeType=text/plain" \
+  -H "Authorization: Bearer <NANGO-SECRET-KEY>" \
+  -H "Provider-Config-Key: google-drive" \
+  -H "Connection-Id: <CONNECTION-ID>"
+```
+
+---
+
+### Phase 14a: Foundation
+
+**F14a.1 – Nango Integration Setup**
+
+* Add `google-drive` to `SOURCE_TO_PROVIDER` mapping in `sources.py`
+* Add `google-drive` to `allowed_integrations` in connect session endpoint
+* Add `google-drive` to `SourceType` enum in models
+* Add `DEFAULT_MODELS["google-drive"]` for metadata sync
+  **Done:** Google Drive appears in Nango Connect UI.
+
+**F14a.2 – Frontend Provider Config**
+
+* Add `google-drive` to `PROVIDERS` in `integrations/page.tsx`
+* Add Google Drive icon (folder with Drive colors)
+* Provider name: "Google Drive"
+* Nango key: `google-drive`
+  **Done:** Google Drive shows in integrations table.
+
+**F14a.3 – Nango Proxy Client**
+
+* New module `app/nango/proxy.py`
+* `async def proxy_get(connection_id, endpoint, params)` - GET requests
+* `async def proxy_get_binary(connection_id, endpoint)` - Binary file downloads
+* `async def export_google_doc(connection_id, file_id, mime_type)` - Export Docs/Sheets
+* Uses `NANGO_SECRET_KEY` for auth
+  **Done:** Backend can make authenticated Google Drive API calls.
+
+**F14a.4 – File Metadata Normalizer**
+
+* New normalizer `normalize_google_drive()` in `normalizers.py`
+* Map Nango sync records to document metadata:
+  * `external_id` = file ID
+  * `title` = file name
+  * `url` = web view link
+  * `mime_type` = Google MIME type (new field)
+  * `content_text` = empty (fetched later)
+* Store MIME type for processing decision
+  **Done:** File metadata can be synced.
+
+---
+
+### Phase 14b: Google Workspace Files
+
+**F14b.1 – Google Docs Extraction**
+
+* Detect MIME type `application/vnd.google-apps.document`
+* Export as `text/plain` via Drive API
+* Pass to standard ingest pipeline
+  **Done:** Google Docs fully searchable.
+
+**F14b.2 – Google Sheets Extraction**
+
+* Detect MIME type `application/vnd.google-apps.spreadsheet`
+* Export as CSV via Drive API (`text/csv`)
+* Convert CSV to semantic text representation:
+  ```
+  Sheet: Sales Data
+  Row 1: Company=Acme Corp, Revenue=$1.2M, Quarter=Q1 2024
+  Row 2: Company=Globex, Revenue=$850K, Quarter=Q1 2024
+  ```
+* Alternative: Export as `text/plain` for simpler approach
+  **Done:** Spreadsheet data searchable with context.
+
+**F14b.3 – Google Slides Extraction**
+
+* Detect MIME type `application/vnd.google-apps.presentation`
+* Export as `text/plain` via Drive API
+* Extracts text from all slides
+  **Done:** Presentation content searchable.
+
+---
+
+### Phase 14c: PDF Support
+
+**F14c.1 – PDF Extractor Module**
+
+* New module `app/processing/extractors/pdf.py`
+* Add `pdfplumber` to requirements.txt
+* `async def extract_pdf_text(file_bytes: bytes) -> str`
+* Handle multi-page documents
+* Graceful fallback for encrypted/corrupted PDFs
+  **Done:** PDF text extraction working.
+
+**F14c.2 – PDF Processing Integration**
+
+* Detect MIME type `application/pdf`
+* Download file via Nango proxy
+* Extract text with pdfplumber
+* Pass to standard ingest pipeline
+  **Done:** PDFs fully searchable.
+
+---
+
+### Phase 14d: Office Documents
+
+**F14d.1 – Word Document Extractor**
+
+* New module `app/processing/extractors/docx.py`
+* Add `python-docx` to requirements.txt
+* `async def extract_docx_text(file_bytes: bytes) -> str`
+* Extract paragraphs, tables, headers
+  **Done:** Word documents searchable.
+
+**F14d.2 – Excel Extractor**
+
+* New module `app/processing/extractors/xlsx.py`
+* Add `openpyxl` to requirements.txt
+* `async def extract_xlsx_text(file_bytes: bytes) -> str`
+* Convert sheets to semantic text (like Google Sheets)
+* Handle multiple worksheets
+  **Done:** Excel files searchable.
+
+**F14d.3 – PowerPoint Extractor**
+
+* New module `app/processing/extractors/pptx.py`
+* Add `python-pptx` to requirements.txt
+* `async def extract_pptx_text(file_bytes: bytes) -> str`
+* Extract text from all slides
+  **Done:** PowerPoint files searchable.
+
+---
+
+### Phase 14e: Processing Pipeline
+
+**F14e.1 – File Processor Registry**
+
+* New module `app/processing/extractors/__init__.py`
+* Registry mapping MIME types to extractors:
+  ```python
+  EXTRACTORS = {
+      "application/vnd.google-apps.document": extract_google_doc,
+      "application/vnd.google-apps.spreadsheet": extract_google_sheet,
+      "application/pdf": extract_pdf,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": extract_docx,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": extract_xlsx,
+      "text/plain": extract_plain_text,
+  }
+  ```
+* `async def extract_content(mime_type, file_bytes, connection_id, file_id)`
+  **Done:** Unified extraction interface.
+
+**F14e.2 – PROCESS_FILE Job Type**
+
+* New job type in `JobType` enum
+* Payload: `{document_id, file_id, mime_type, connection_id}`
+* Handler in `handlers.py`:
+  1. Fetch file content via Nango proxy
+  2. Route to appropriate extractor
+  3. Update document `content_text`
+  4. Enqueue `PROCESS_DOCUMENT` for standard pipeline
+  **Done:** Async file processing with retry support.
+
+**F14e.3 – Google Drive Backfill Update**
+
+* Update `backfill()` endpoint for google-drive source
+* For each file:
+  * Create document with metadata (no content yet)
+  * Enqueue `PROCESS_FILE` job
+* Processing happens asynchronously via worker
+  **Done:** Scalable backfill for large drives.
+
+---
+
+### Phase 14f: Advanced Features (Future)
+
+**F14f.1 – Incremental Sync**
+
+* Track `modified_time` per file
+* Only re-process changed files
+* Webhook support for real-time updates
+  **Done:** Efficient ongoing sync.
+
+**F14f.2 – Folder Structure Context**
+
+* Store folder path as document metadata
+* Use folder context in entity extraction
+* "This document is in /Projects/Q1 Planning/"
+  **Done:** Folder context enhances understanding.
+
+**F14f.3 – Image OCR (Optional)**
+
+* Add Tesseract or cloud OCR service
+* Extract text from images, scanned PDFs
+* MIME types: `image/png`, `image/jpeg`
+  **Done:** Image content searchable.
+
+**F14f.4 – Large File Handling**
+
+* Streaming download for large files
+* Chunked processing for PDFs > 100 pages
+* Memory-efficient extraction
+  **Done:** No file size limits.
+
+---
+
+### Supported File Types Summary
+
+| MIME Type | Source | Extractor | Phase |
+|-----------|--------|-----------|-------|
+| `application/vnd.google-apps.document` | Google Docs | Export API | 14b |
+| `application/vnd.google-apps.spreadsheet` | Google Sheets | Export API | 14b |
+| `application/vnd.google-apps.presentation` | Google Slides | Export API | 14b |
+| `application/pdf` | PDF files | pdfplumber | 14c |
+| `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | Word .docx | python-docx | 14d |
+| `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | Excel .xlsx | openpyxl | 14d |
+| `application/vnd.openxmlformats-officedocument.presentationml.presentation` | PowerPoint .pptx | python-pptx | 14d |
+| `text/plain` | Text files | Direct read | 14a |
+| `text/csv` | CSV files | Direct read | 14a |
+| `text/markdown` | Markdown | Direct read | 14a |
+
+### Dependencies to Add
+
+```
+# requirements.txt additions
+pdfplumber>=0.10.0
+python-docx>=1.1.0
+openpyxl>=3.1.0
+python-pptx>=0.6.23
+```

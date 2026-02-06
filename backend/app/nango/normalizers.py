@@ -16,6 +16,8 @@ import re
 from datetime import datetime
 from typing import Any
 
+from app.nango.proxy import GOOGLE_FOLDER_MIME, SUPPORTED_MIME_TYPES
+
 logger = logging.getLogger(__name__)
 
 
@@ -112,8 +114,70 @@ def normalize_notion(records: list[dict[str, Any]], content_map: dict[str, str] 
     return docs
 
 
+def normalize_google_drive(records: list[dict[str, Any]], content_map: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """
+    Map Nango Google Drive file records → ingest-ready dicts.
+
+    Google Drive syncs metadata only. Content must be fetched separately
+    via the Drive API (export for Google Workspace files, download for binaries).
+
+    content_map: optional {file_id: plain_text} with pre-fetched file content.
+    If not provided, content_text will be empty (metadata-only mode for async processing).
+    """
+    content_map = content_map or {}
+    docs = []
+
+    for rec in records:
+        mime_type = rec.get("mimeType") or ""
+
+        # Skip folders
+        if mime_type == GOOGLE_FOLDER_MIME:
+            continue
+
+        # Skip unsupported file types
+        if mime_type not in SUPPORTED_MIME_TYPES:
+            logger.debug("Skipping unsupported file type: %s (%s)", rec.get("name"), mime_type)
+            continue
+
+        external_id = rec.get("id") or ""
+        name = rec.get("name") or "(untitled)"
+        web_link = rec.get("webViewLink") or ""
+
+        content = content_map.get(external_id, "")
+
+        modified_time = None
+        modified_str = rec.get("modifiedTime")
+        if modified_str:
+            try:
+                modified_time = datetime.fromisoformat(str(modified_str).replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+
+        # Extract owner info if available
+        owners = rec.get("owners") or []
+        owner_name = None
+        owner_email = None
+        if owners:
+            owner_name = owners[0].get("displayName")
+            owner_email = owners[0].get("emailAddress")
+
+        docs.append({
+            "source_type": "google-drive",
+            "external_id": external_id,
+            "url": web_link,
+            "title": name,
+            "author_name": owner_name,
+            "author_email": owner_email,
+            "created_at": modified_time,
+            "content_text": content,  # Empty for async processing, populated for sync
+        })
+
+    return docs
+
+
 NORMALIZERS = {
     "google-mail": normalize_gmail,
     "gmail": normalize_gmail,
     "notion": normalize_notion,
+    "google-drive": normalize_google_drive,
 }
