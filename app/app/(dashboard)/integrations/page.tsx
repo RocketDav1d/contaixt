@@ -69,6 +69,22 @@ const PROVIDERS: Record<
       </div>
     ),
   },
+  "google-drive": {
+    name: "Google Drive",
+    nangoKey: "google-drive",
+    icon: (
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+        <svg className="h-5 w-5" viewBox="0 0 87.3 78" fill="none">
+          <path d="M6.6 66.85L3.3 61.35L29.9 14.55H57.8L31.2 61.35L6.6 66.85Z" fill="#0066DA" />
+          <path d="M83.85 66.85L57.25 66.85L30.65 20.05L43.65 0L83.85 66.85Z" fill="#00AC47" />
+          <path d="M57.8 14.55L84 61.35L57.4 66.85L43.65 43.75L57.8 14.55Z" fill="#EA4335" />
+          <path d="M29.9 14.55L43.65 0L57.8 14.55H29.9Z" fill="#00832D" />
+          <path d="M6.6 66.85L31.2 61.35L43.65 43.75L29.9 14.55L6.6 66.85Z" fill="#2684FC" />
+          <path d="M43.65 43.75L57.4 66.85L31.2 61.35L43.65 43.75Z" fill="#FFBA00" />
+        </svg>
+      </div>
+    ),
+  },
 };
 
 function formatRelativeTime(dateString: string): string {
@@ -165,19 +181,45 @@ export default function IntegrationsPage() {
 
       // 3. Open Nango Connect UI
       nango.openConnectUI({
-        onEvent: (event) => {
+        onEvent: async (event) => {
           console.log("Nango event:", event);
 
           if (event.type === "close") {
             setIsConnecting(false);
-            // Refresh connections after modal closes
-            // (webhook may have created the connection)
-            setTimeout(() => fetchConnections(), 1000);
           }
 
           if (event.type === "connect") {
-            // Connection created successfully
-            console.log("Connected:", event.payload);
+            // Connection created successfully - register it in our database
+            const payload = event.payload as {
+              providerConfigKey: string;
+              connectionId: string;
+            };
+            console.log("Connected:", payload);
+
+            // Map Nango provider key to our source_type
+            const providerToSource: Record<string, string> = {
+              "google-mail": "gmail",
+              "notion": "notion",
+              "google-drive": "google-drive",
+            };
+
+            const sourceType = providerToSource[payload.providerConfigKey];
+            if (sourceType) {
+              try {
+                await fetch(`${API_URL}/v1/sources/nango/register`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    workspace_id: workspaceId,
+                    source_type: sourceType,
+                    nango_connection_id: payload.connectionId,
+                  }),
+                });
+              } catch (err) {
+                console.error("Failed to register connection:", err);
+              }
+            }
+
             fetchConnections();
           }
         },

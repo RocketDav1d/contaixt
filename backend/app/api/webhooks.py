@@ -1,6 +1,10 @@
 """
 Nango webhook receiver.
 Single endpoint handles all providers – routes by providerConfigKey.
+
+Handles two event types:
+- auth: When a new connection is created via Nango Connect UI
+- sync: When Nango syncs data from a connected provider
 """
 
 import hashlib
@@ -9,16 +13,21 @@ import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from app.api.ingest import IngestDocumentRequest, ingest_document
+from app.api.ingest import ingest_document, IngestDocumentRequest
+from app.api.sources import RegisterConnectionRequest, register_connection
 from app.config import settings
 from app.nango.client import list_records
-from app.nango.content import fetch_notion_content_map
-from app.nango.normalizers import NORMALIZERS, normalize_notion
-from app.nango.sync import resolve_workspace_and_connection
+from app.nango.content import fetch_drive_content_map, fetch_notion_content_map
+from app.nango.normalizers import NORMALIZERS, normalize_google_drive, normalize_notion
+from app.nango.sync import PROVIDER_TO_SOURCE, resolve_workspace_and_connection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/webhooks", tags=["webhooks"])
+
+# Hardcoded workspace ID for now - should come from Nango end_user metadata
+# TODO: Store workspace_id in Nango end_user.id or metadata
+DEFAULT_WORKSPACE_ID = "50926c1f-8132-4694-bd8a-b250c4a67089"
 
 
 def _verify_signature(payload: bytes, signature: str | None) -> bool:
@@ -47,10 +56,55 @@ async def nango_webhook(
     payload = await request.json()
     event_type = payload.get("type")
 
-    if event_type != "sync":
-        logger.info("Ignoring non-sync webhook: type=%s", event_type)
-        return {"status": "ignored"}
+    logger.info("Nango webhook received: type=%s", event_type)
 
+    # Handle auth event - new connection created via Nango Connect UI
+    if event_type == "auth":
+        return await _handle_auth_event(payload)
+
+    # Handle sync event - data synced from provider
+    if event_type == "sync":
+        return await _handle_sync_event(payload)
+
+    logger.info("Ignoring webhook: type=%s", event_type)
+    return {"status": "ignored"}
+
+
+async def _handle_auth_event(payload: dict):
+    """Handle new connection created via Nango Connect UI."""
+    connection_id = payload.get("connectionId", "")
+    provider_config_key = payload.get("providerConfigKey", "")
+
+    # Map provider to our source_type
+    source_type = PROVIDER_TO_SOURCE.get(provider_config_key)
+    if not source_type:
+        logger.warning("Unknown provider: %s", provider_config_key)
+        return {"status": "unsupported_provider"}
+
+    logger.info(
+        "Auth webhook: creating connection for provider=%s connection_id=%s",
+        provider_config_key, connection_id
+    )
+
+    try:
+        # Register the connection in our database
+        from app.models import SourceType
+        result = await register_connection(
+            RegisterConnectionRequest(
+                workspace_id=DEFAULT_WORKSPACE_ID,
+                source_type=SourceType(source_type),
+                nango_connection_id=connection_id,
+            )
+        )
+        logger.info("Created source_connection: %s", result.id)
+        return {"status": "ok", "source_connection_id": str(result.id)}
+    except Exception as e:
+        logger.error("Failed to create connection: %s", e, exc_info=True)
+        return {"status": "error", "detail": str(e)}
+
+
+async def _handle_sync_event(payload: dict):
+    """Handle sync completion from Nango."""
     connection_id = payload.get("connectionId", "")
     provider_config_key = payload.get("providerConfigKey", "")
     model = payload.get("model", "")
@@ -86,10 +140,13 @@ async def nango_webhook(
     )
     logger.info("Fetched %d records from Nango", len(records))
 
-    # Notion needs extra content fetch; Gmail has body inline
+    # Notion and Google Drive need extra content fetch; Gmail has body inline
     if provider_config_key == "notion":
         content_map = await fetch_notion_content_map(connection_id, records)
         docs = normalize_notion(records, content_map=content_map)
+    elif provider_config_key == "google-drive":
+        content_map = await fetch_drive_content_map(connection_id, records)
+        docs = normalize_google_drive(records, content_map=content_map)
     else:
         normalizer = NORMALIZERS[provider_config_key]
         docs = normalizer(records)

@@ -28,6 +28,7 @@ from app.db import Base
 class SourceType(enum.StrEnum):
     gmail = "gmail"
     notion = "notion"
+    google_drive = "google-drive"
 
 
 class ConnectionStatus(enum.StrEnum):
@@ -101,7 +102,10 @@ class SourceConnection(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    source_type: Mapped[SourceType] = mapped_column(Enum(SourceType, name="source_type_enum"), nullable=False)
+    source_type: Mapped[SourceType] = mapped_column(
+        Enum(SourceType, name="source_type_enum", values_callable=lambda e: [m.value for m in e]),
+        nullable=False
+    )
     nango_connection_id: Mapped[str] = mapped_column(String(255), nullable=False)
     external_account_id: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[ConnectionStatus] = mapped_column(
@@ -123,16 +127,15 @@ class Document(Base):
     """
     __tablename__ = "documents"
     __table_args__ = (
-        UniqueConstraint(
-            "workspace_id", "vault_id", "source_type", "external_id", name="uq_doc_workspace_vault_source_ext"
-        ),
+        UniqueConstraint("workspace_id", "source_type", "external_id", name="uq_doc_workspace_source_ext"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    vault_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_connection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     source_type: Mapped[SourceType] = mapped_column(
-        Enum(SourceType, name="source_type_enum", create_type=False), nullable=False
+        Enum(SourceType, name="source_type_enum", create_type=False, values_callable=lambda e: [m.value for m in e]),
+        nullable=False
     )
     external_id: Mapped[str] = mapped_column(String(512), nullable=False)
     url: Mapped[str | None] = mapped_column(Text)
