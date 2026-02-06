@@ -402,3 +402,32 @@ Cypher pattern:
 * API Client für alle Backend-Endpoints
 * Error Handling + Loading States
   **Done:** Frontend kommuniziert sicher mit Backend.
+
+---
+
+## 11) Vector Search Improvements
+
+> Upgrade pgvector with HNSW indexing, cosine similarity, and Cohere reranking for better retrieval quality.
+
+**F11.1 – HNSW Index**
+
+* Add migration `003_hnsw_index.py`
+* Create HNSW index on `document_chunks.embedding` with `vector_cosine_ops`
+* Parameters: m=16, ef_construction=64
+  **Done:** ~100x faster similarity search at scale.
+
+**F11.2 – Cosine Similarity**
+
+* Already using `<=>` operator (cosine distance in pgvector)
+* HNSW index configured with `vector_cosine_ops`
+* Lower distance = more similar (0-2 range)
+  **Done:** Semantically appropriate distance metric for text.
+
+**F11.3 – Cohere Reranking**
+
+* Add `cohere` to requirements.txt
+* Add `COHERE_API_KEY` to config
+* Two-stage retrieval: fetch 3x candidates, rerank to top_k
+* Model: `rerank-v3.5`
+* Graceful fallback if API unavailable
+  **Done:** Significantly improved retrieval precision.
