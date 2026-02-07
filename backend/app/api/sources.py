@@ -20,6 +20,7 @@ from app.models import ContextVault, SourceConnection, SourceType, VaultSourceCo
 from app.nango.client import list_records
 from app.nango.content import fetch_drive_content_map, fetch_notion_content_map
 from app.nango.normalizers import NORMALIZERS, normalize_google_drive, normalize_notion
+from app.nango.proxy import drive_list_supported_files
 
 logger = logging.getLogger(__name__)
 
@@ -314,12 +315,17 @@ async def backfill(source_type: SourceType, workspace_id: uuid.UUID):
     if provider_key not in NORMALIZERS:
         raise HTTPException(400, f"No normalizer for provider {provider_key}")
 
-    # Fetch all records (no modified_after = full backfill)
-    records = await list_records(
-        connection_id=conn.nango_connection_id,
-        provider_config_key=provider_key,
-        model=model,
-    )
+    # Fetch all records
+    # Google Drive uses Proxy API directly (no Nango sync needed)
+    # Other providers use Nango's records API (requires configured sync)
+    if provider_key == "google-drive":
+        records = await drive_list_supported_files(conn.nango_connection_id)
+    else:
+        records = await list_records(
+            connection_id=conn.nango_connection_id,
+            provider_config_key=provider_key,
+            model=model,
+        )
     logger.info("Backfill: fetched %d records from Nango for %s", len(records), source_type.value)
 
     # Notion and Google Drive need extra content fetch; Gmail has body inline

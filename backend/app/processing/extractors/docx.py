@@ -16,19 +16,21 @@ from docx.table import Table
 logger = logging.getLogger(__name__)
 
 
-def extract_docx_text(file_bytes: bytes) -> str:
+def extract_docx_text(source: bytes | str) -> str:
     """
     Extract text content from a Word document (.docx).
 
     Args:
-        file_bytes: Raw DOCX file content
+        source: Raw DOCX file content (bytes) or path to DOCX file (str)
 
     Returns:
         Extracted plain text with paragraphs separated by newlines.
         Returns empty string if extraction fails.
     """
     try:
-        doc = Document(io.BytesIO(file_bytes))
+        # Support both bytes and file paths
+        file_input = io.BytesIO(source) if isinstance(source, bytes) else source
+        doc = Document(file_input)
         text_parts: list[str] = []
 
         # Extract paragraphs

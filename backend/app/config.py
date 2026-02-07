@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # Cohere (for reranking)
     cohere_api_key: str = ""
 
+    # Supabase Storage (for file processing)
+    supabase_url: str = ""
+    supabase_service_key: str = ""  # Service role key for storage access
+    supabase_storage_bucket: str = "temp-files"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

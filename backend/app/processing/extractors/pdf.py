@@ -16,12 +16,12 @@ import pdfplumber
 logger = logging.getLogger(__name__)
 
 
-def extract_pdf_text(file_bytes: bytes) -> str:
+def extract_pdf_text(source: bytes | str) -> str:
     """
     Extract text content from a PDF file.
 
     Args:
-        file_bytes: Raw PDF file content
+        source: Raw PDF file content (bytes) or path to PDF file (str)
 
     Returns:
         Extracted plain text with pages separated by newlines.
@@ -30,7 +30,10 @@ def extract_pdf_text(file_bytes: bytes) -> str:
     try:
         text_parts: list[str] = []
 
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        # Support both bytes and file paths
+        file_input = io.BytesIO(source) if isinstance(source, bytes) else source
+
+        with pdfplumber.open(file_input) as pdf:
             total_pages = len(pdf.pages)
             logger.info("Extracting text from PDF with %d pages", total_pages)
 

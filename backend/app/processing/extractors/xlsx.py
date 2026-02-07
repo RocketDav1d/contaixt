@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 logger = logging.getLogger(__name__)
 
 
-def extract_xlsx_text(file_bytes: bytes) -> str:
+def extract_xlsx_text(source: bytes | str) -> str:
     """
     Extract text content from an Excel spreadsheet (.xlsx).
 
@@ -23,14 +23,16 @@ def extract_xlsx_text(file_bytes: bytes) -> str:
     - Handles multiple worksheets
 
     Args:
-        file_bytes: Raw XLSX file content
+        source: Raw XLSX file content (bytes) or path to XLSX file (str)
 
     Returns:
         Extracted text with semantic row descriptions.
         Returns empty string if extraction fails.
     """
     try:
-        wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        # Support both bytes and file paths
+        file_input = io.BytesIO(source) if isinstance(source, bytes) else source
+        wb = load_workbook(file_input, read_only=True, data_only=True)
         text_parts: list[str] = []
 
         sheet_count = len(wb.sheetnames)
@@ -96,7 +98,7 @@ def _extract_sheet_text(sheet, sheet_name: str) -> str:
     return ""
 
 
-def extract_xlsx_raw(file_bytes: bytes) -> str:
+def extract_xlsx_raw(source: bytes | str) -> str:
     """
     Extract raw text from Excel without semantic formatting.
 
@@ -104,7 +106,8 @@ def extract_xlsx_raw(file_bytes: bytes) -> str:
     Useful when semantic format isn't needed.
     """
     try:
-        wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        file_input = io.BytesIO(source) if isinstance(source, bytes) else source
+        wb = load_workbook(file_input, read_only=True, data_only=True)
         text_parts: list[str] = []
 
         for sheet_name in wb.sheetnames:

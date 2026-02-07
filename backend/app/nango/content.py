@@ -3,6 +3,8 @@ Fetch actual content for documents via Nango proxy.
 
 - Notion: Uses blocks API to get page content
 - Google Drive: Exports Google Workspace files + extracts from binary files (PDF, etc.)
+
+Large files are streamed to temporary storage (Supabase S3 or local) to avoid memory issues.
 """
 
 import logging
@@ -17,8 +19,12 @@ from app.nango.proxy import (
     drive_export_file,
 )
 from app.processing.extractors import EXTRACTORS
+from app.storage import TempFile, cleanup_temp, download_to_temp
 
 logger = logging.getLogger(__name__)
+
+# Files larger than this will use temp storage instead of memory
+LARGE_FILE_THRESHOLD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 async def fetch_notion_content_map(
@@ -139,6 +145,7 @@ async def fetch_drive_content_map(
         if not extractor:
             continue
 
+        temp_file: TempFile | None = None
         try:
             # Download file content
             file_bytes = await drive_download_file(
@@ -147,8 +154,15 @@ async def fetch_drive_content_map(
             )
             logger.debug("Downloaded %s: %d bytes", file_name, len(file_bytes))
 
-            # Extract text using appropriate extractor
-            text = extractor(file_bytes)
+            # For large files, use temp storage to avoid memory pressure during extraction
+            if len(file_bytes) > LARGE_FILE_THRESHOLD_BYTES:
+                temp_file = await download_to_temp(file_bytes, file_name, mime_type)
+                local_path = temp_file.get_local_path()
+                logger.debug("Using temp storage for large file: %s", file_name)
+                text = extractor(local_path)
+            else:
+                # Small files can be processed in memory
+                text = extractor(file_bytes)
 
             if text.strip():
                 content_map[file_id] = text
@@ -156,6 +170,10 @@ async def fetch_drive_content_map(
 
         except Exception:
             logger.warning("Failed to extract file %s (%s)", file_name, file_id, exc_info=True)
+        finally:
+            # Clean up temp file if used
+            if temp_file:
+                cleanup_temp(temp_file)
 
     # Process plain text files (download directly)
     for file in plain_text_files:

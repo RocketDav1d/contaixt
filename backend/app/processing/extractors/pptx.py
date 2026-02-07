@@ -16,19 +16,21 @@ from pptx import Presentation
 logger = logging.getLogger(__name__)
 
 
-def extract_pptx_text(file_bytes: bytes) -> str:
+def extract_pptx_text(source: bytes | str) -> str:
     """
     Extract text content from a PowerPoint presentation (.pptx).
 
     Args:
-        file_bytes: Raw PPTX file content
+        source: Raw PPTX file content (bytes) or path to PPTX file (str)
 
     Returns:
         Extracted text organized by slide.
         Returns empty string if extraction fails.
     """
     try:
-        prs = Presentation(io.BytesIO(file_bytes))
+        # Support both bytes and file paths
+        file_input = io.BytesIO(source) if isinstance(source, bytes) else source
+        prs = Presentation(file_input)
         text_parts: list[str] = []
 
         for slide_num, slide in enumerate(prs.slides, start=1):

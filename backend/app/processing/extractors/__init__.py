@@ -1,8 +1,8 @@
 """
 File content extractors for various document types.
 
-Each extractor takes file bytes and returns extracted plain text.
-Used by the Google Drive integration to process binary files.
+Each extractor accepts either bytes or a file path (str) and returns extracted plain text.
+File path support enables streaming from disk/S3 instead of loading into memory.
 
 Supported formats:
 - PDF (.pdf) - pdfplumber

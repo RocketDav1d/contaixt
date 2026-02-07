@@ -105,6 +105,49 @@ async def drive_list_files(
     )
 
 
+async def drive_list_supported_files(connection_id: str) -> list[dict[str, Any]]:
+    """List all supported files from Google Drive with pagination.
+
+    Queries for file types we can extract text from:
+    - Google Docs, Sheets, Slides
+    - PDFs
+    - Office documents (DOCX, XLSX, PPTX)
+    - Plain text files
+    """
+    supported_query = " or ".join([
+        "mimeType='application/vnd.google-apps.document'",
+        "mimeType='application/vnd.google-apps.spreadsheet'",
+        "mimeType='application/vnd.google-apps.presentation'",
+        "mimeType='application/pdf'",
+        "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
+        "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
+        "mimeType='application/vnd.openxmlformats-officedocument.presentationml.presentation'",
+        "mimeType='text/plain'",
+        "mimeType='text/csv'",
+        "mimeType='text/markdown'",
+    ])
+
+    all_files: list[dict[str, Any]] = []
+    page_token: str | None = None
+
+    while True:
+        response = await drive_list_files(
+            connection_id=connection_id,
+            page_size=100,
+            page_token=page_token,
+            query=supported_query,
+        )
+        files = response.get("files", [])
+        all_files.extend(files)
+
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+
+    logger.info("Listed %d supported files from Google Drive", len(all_files))
+    return all_files
+
+
 async def drive_get_file_metadata(
     connection_id: str,
     file_id: str,
