@@ -98,11 +98,11 @@ function VaultCard({
       <div className="mb-4 flex justify-center">
         <div className="relative h-32 w-40">
           {/* Folder back */}
-          <div className="absolute inset-x-0 top-4 h-28 rounded-xl bg-gradient-to-b from-[#412bcf] to-[#3623a8] shadow-sm" />
+          <div className="absolute inset-x-0 top-4 h-28 rounded-xl bg-linear-to-b from-[#412bcf] to-[#3623a8] shadow-xs" />
           {/* Folder tab */}
           <div className="absolute left-0 top-0 h-6 w-16 rounded-t-xl bg-[#412bcf]" />
           {/* Folder front */}
-          <div className="absolute inset-x-0 top-8 h-24 rounded-xl bg-gradient-to-b from-[#6b5cd9] to-[#412bcf] shadow-inner" />
+          <div className="absolute inset-x-0 top-8 h-24 rounded-xl bg-linear-to-b from-[#6b5cd9] to-[#412bcf] shadow-inner" />
 
           {/* Provider icons at bottom */}
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
@@ -110,12 +110,12 @@ function VaultCard({
               <ProviderIcon key={conn.id} provider={conn.source_type} />
             ))}
             {connections.length > 3 && (
-              <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-600 shadow-sm">
+              <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-600 shadow-xs">
                 +{connections.length - 3}
               </div>
             )}
             {connections.length === 0 && (
-              <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-400 shadow-sm">
+              <div className="flex h-5 items-center rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-gray-400 shadow-xs">
                 No sources
               </div>
             )}

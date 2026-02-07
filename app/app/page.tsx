@@ -47,7 +47,7 @@ export default function Home() {
           <h1 className="mb-6 text-5xl font-bold tracking-tight sm:text-6xl">
             The Context Layer
             <br />
-            <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">for Your AI</span>
+            <span className="bg-linear-to-r from-primary to-primary/60 bg-clip-text text-transparent">for Your AI</span>
           </h1>
           <p className="mx-auto mb-8 max-w-2xl text-xl text-muted-foreground">
             Connect your data sources, build a unified knowledge graph, and give
