@@ -53,6 +53,35 @@ STATEMENTS = [
     CREATE INDEX document_vault_idx IF NOT EXISTS
     FOR (n:Document) ON (n.vault_id)
     """,
+    # --- Chunk nodes for vector search ---
+    """
+    CREATE CONSTRAINT chunk_workspace_doc_idx IF NOT EXISTS
+    FOR (n:Chunk) REQUIRE (n.workspace_id, n.document_id, n.idx) IS UNIQUE
+    """,
+    """
+    CREATE INDEX chunk_workspace_idx IF NOT EXISTS
+    FOR (n:Chunk) ON (n.workspace_id)
+    """,
+    """
+    CREATE INDEX chunk_document_idx IF NOT EXISTS
+    FOR (n:Chunk) ON (n.document_id)
+    """,
+    """
+    CREATE INDEX chunk_connection_idx IF NOT EXISTS
+    FOR (n:Chunk) ON (n.source_connection_id)
+    """,
+    # --- Vector index for semantic search (HNSW, cosine similarity) ---
+    # Note: WITH [n.prop] filtering properties syntax requires Neo4j 2026.01+
+    # Neo4j Aura 5.x uses basic syntax. Pre-filtering still works via Cypher WHERE.
+    # Reference: https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/vector-indexes/
+    """
+    CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS
+    FOR (n:Chunk) ON (n.embedding)
+    OPTIONS {indexConfig: {
+        `vector.dimensions`: 1536,
+        `vector.similarity_function`: 'cosine'
+    }}
+    """,
 ]
 
 

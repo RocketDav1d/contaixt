@@ -197,6 +197,7 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
         JobType.UPSERT_GRAPH,
         {
             "document_id": str(document_id),
+            "source_connection_id": str(doc.source_connection_id),
             "entities": entities,
             "relations": relations,
             "entity_keys": entity_keys,
@@ -207,11 +208,13 @@ async def handle_extract_entities_relations(workspace_id: uuid.UUID, payload: di
 async def handle_upsert_graph(workspace_id: uuid.UUID, payload: dict) -> None:
     """Upsert extracted entities/relations into Neo4j.
 
-    The graph is now unified (no vault filtering), so vault_id is no longer used.
+    The graph is now unified (no vault filtering on edges), but source_connection_id
+    is stored on Document nodes to enable vault filtering during queries.
     """
     from app.processing.graph import upsert_entities_and_relations
 
     document_id = uuid.UUID(payload["document_id"])
+    source_connection_id = uuid.UUID(payload["source_connection_id"]) if payload.get("source_connection_id") else None
     entities = payload.get("entities", [])
     relations = payload.get("relations", [])
     entity_keys = payload.get("entity_keys", {})
@@ -221,6 +224,7 @@ async def handle_upsert_graph(workspace_id: uuid.UUID, payload: dict) -> None:
     await upsert_entities_and_relations(
         workspace_id=workspace_id,
         document_id=document_id,
+        source_connection_id=source_connection_id,
         entities=entities,
         relations=relations,
         entity_keys=entity_keys,

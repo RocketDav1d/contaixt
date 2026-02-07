@@ -810,3 +810,304 @@ python-docx>=1.1.0
 openpyxl>=3.1.0
 python-pptx>=0.6.23
 ```
+
+---
+
+## 15) Neo4j Unified Vector + Graph Search
+
+> Migrate vector embeddings from pgvector to Neo4j. Combines semantic vector search with knowledge graph traversal in Neo4j. Follows Neo4j best practices for driver management and multi-tenant pre-filtering.
+
+### Architecture: Before vs After
+
+**Before (two databases):**
+```
+Query Flow:
+1. Embed prompt via OpenAI
+2. pgvector similarity search → top_k chunks
+3. Seed entities from PostgreSQL entity_mentions
+4. Neo4j graph traversal from seeds
+5. Combine results in Python
+→ 2 databases, multiple round-trips, application-level joining
+```
+
+**After (Neo4j for vectors + graph):**
+```
+Query Flow:
+1. Embed prompt via OpenAI
+2. Neo4j ENN pre-filter search (workspace/vault isolation guaranteed)
+3. Neo4j seed entity lookup from matching documents
+4. Neo4j graph traversal from seeds
+5. Cohere reranking for precision
+→ 1 vector store, proper multi-tenant isolation
+```
+
+**Benefits:**
+- Single vector store (Neo4j) instead of two (pgvector + Neo4j)
+- Pre-filtering guarantees workspace/vault isolation
+- Connection pooling via singleton driver
+- Modular functions with proper error handling
+
+### Key Design Decisions
+
+**1. ENN Pre-filtering (not ANN Post-filtering)**
+
+Per [Neo4j Vector Search docs](https://neo4j.com/developer/genai-ecosystem/vector-search/), use `vector.similarity.cosine()` with `MATCH WHERE` for multi-tenant pre-filtering:
+
+```cypher
+// Pre-filter: workspace isolation BEFORE similarity computation
+MATCH (chunk:Chunk)
+WHERE chunk.workspace_id = $ws
+  AND chunk.source_connection_id IN $conn_ids
+  AND chunk.embedding IS NOT NULL
+WITH chunk, vector.similarity.cosine(chunk.embedding, $embedding) AS score
+WHERE score > 0.0
+ORDER BY score DESC
+LIMIT $top_k
+RETURN chunk, score
+```
+
+This guarantees workspace isolation. The alternative `db.index.vector.queryNodes()` does post-filtering which can return fewer results than expected.
+
+**2. Singleton Driver Pattern**
+
+Per [Neo4j Driver Best Practices](https://neo4j.com/blog/developer/neo4j-driver-best-practices/):
+> "Your application should only create one driver instance per Neo4j DBMS"
+
+New module `app/neo4j_client.py` provides:
+- Application-scoped singleton driver with connection pooling
+- `get_session()` context manager for per-operation sessions
+- `verify_connectivity()` for startup health checks
+- `close_driver()` for graceful shutdown
+
+**3. Vector Index with Filtering Properties**
+
+Neo4j 2026.01+ supports filtering properties in vector indexes:
+
+```cypher
+CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS
+FOR (n:Chunk) ON (n.embedding)
+WITH [n.workspace_id, n.source_connection_id]
+OPTIONS {indexConfig: {
+    `vector.dimensions`: 1536,
+    `vector.similarity_function`: 'cosine'
+}}
+```
+
+---
+
+### Phase 15a: Neo4j Schema
+
+**F15a.1 – Chunk Node Schema**
+
+* New node type `:Chunk` with properties:
+  * `workspace_id`, `document_id`, `idx` (unique constraint)
+  * `chunk_id`, `text`, `start_offset`, `end_offset`
+  * `embedding` (1536-dim vector)
+  * `source_connection_id` (for vault filtering)
+* Relationship: `(Chunk)-[:PART_OF]->(Document)`
+  **Done:** Chunk nodes store embeddings alongside document graph.
+
+**F15a.2 – Vector Index with Filtering**
+
+* HNSW vector index with filtering properties:
+  ```cypher
+  CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS
+  FOR (n:Chunk) ON (n.embedding)
+  WITH [n.workspace_id, n.source_connection_id]
+  OPTIONS {indexConfig: {
+      `vector.dimensions`: 1536,
+      `vector.similarity_function`: 'cosine'
+  }}
+  ```
+* Requires Neo4j 2026.01+ for filtering properties
+  **Done:** Vector index supports pre-filtering.
+
+**F15a.3 – Supporting Indexes**
+
+* `CREATE INDEX chunk_workspace_idx FOR (n:Chunk) ON (n.workspace_id)`
+* `CREATE INDEX chunk_document_idx FOR (n:Chunk) ON (n.document_id)`
+* `CREATE INDEX chunk_connection_idx FOR (n:Chunk) ON (n.source_connection_id)`
+  **Done:** Efficient filtering by workspace/vault.
+
+---
+
+### Phase 15b: Singleton Driver Module
+
+**F15b.1 – Neo4j Client Module**
+
+* New module `app/neo4j_client.py`
+* Singleton driver with connection pooling:
+  ```python
+  def get_driver() -> AsyncDriver:
+      """Get singleton driver, create on first call."""
+      global _driver
+      if _driver is None:
+          _driver = AsyncGraphDatabase.driver(
+              settings.neo4j_uri,
+              auth=(settings.neo4j_username, settings.neo4j_password),
+              max_connection_pool_size=50,
+          )
+      return _driver
+
+  @asynccontextmanager
+  async def get_session() -> AsyncGenerator[AsyncSession, None]:
+      """Get session from singleton driver."""
+      driver = get_driver()
+      session = driver.session(database=settings.neo4j_database)
+      try:
+          yield session
+      finally:
+          await session.close()
+  ```
+  **Done:** Connection pooling per Neo4j best practices.
+
+**F15b.2 – Update All Neo4j Callers**
+
+* `app/processing/embeddings.py`: Use `get_session()`
+* `app/processing/graph.py`: Use `get_session()`
+* `app/processing/context_builder.py`: Use `get_session()`
+* `app/scripts/migrate_embeddings_to_neo4j.py`: Use `get_session()`
+  **Done:** No more driver-per-request anti-pattern.
+
+---
+
+### Phase 15c: Dual-Write Pipeline
+
+**F15c.1 – Embeddings Writer Update**
+
+* `app/processing/embeddings.py` writes to both:
+  * PostgreSQL pgvector column (legacy, backward compatibility)
+  * Neo4j Chunk nodes with embeddings
+* Fetches `source_connection_id` from Document for vault filtering
+* Batch upsert using UNWIND for efficiency
+* Uses singleton driver via `get_session()`
+  **Done:** New embeddings go to both databases.
+
+**F15c.2 – Document Node Enhancement**
+
+* Store `source_connection_id` on Document nodes
+* Updated in both `graph.py` and `embeddings.py`
+* Enables vault filtering via document → connection path
+  **Done:** Document nodes have connection metadata.
+
+**F15c.3 – Job Handler Updates**
+
+* `handle_extract_entities_relations`: Pass `source_connection_id` in UPSERT_GRAPH payload
+* `handle_upsert_graph`: Forward to `graph.py`
+* Both paths (embedding + graph) now store connection ID
+  **Done:** Connection ID flows through all pipelines.
+
+---
+
+### Phase 15d: Context Builder Rewrite
+
+**F15d.1 – Modular Function Design**
+
+* Complete rewrite of `app/processing/context_builder.py`
+* Separate functions instead of one giant query:
+  ```python
+  async def vector_search_chunks(workspace_id, query_embedding, top_k, connection_ids)
+  async def get_seed_entities(workspace_id, document_ids)
+  async def traverse_graph(workspace_id, entity_keys, depth)
+  async def build_context(workspace_id, prompt, vault_ids, depth, top_k)
+  ```
+* Each function has try/except with logging
+  **Done:** Modular, testable, debuggable.
+
+**F15d.2 – ENN Pre-filtering for Multi-tenant**
+
+* Uses `vector.similarity.cosine()` with `MATCH WHERE`:
+  ```cypher
+  MATCH (chunk:Chunk)
+  WHERE chunk.workspace_id = $ws
+    AND chunk.source_connection_id IN $conn_ids
+    AND chunk.embedding IS NOT NULL
+  WITH chunk, vector.similarity.cosine(chunk.embedding, $embedding) AS score
+  WHERE score > 0.0
+  ORDER BY score DESC
+  LIMIT $top_k
+  ```
+* Pre-filter guarantees workspace isolation
+  **Done:** Multi-tenant safe.
+
+**F15d.3 – Error Handling**
+
+* Each Neo4j operation wrapped in try/except
+* Graceful degradation: return empty results on failure
+* Structured logging for debugging
+  **Done:** Production-ready error handling.
+
+---
+
+### Phase 15e: Migration
+
+**F15e.1 – Migration Script**
+
+* Script `app/scripts/migrate_embeddings_to_neo4j.py`
+* Reads all chunks with embeddings from PostgreSQL
+* Creates corresponding Chunk nodes in Neo4j
+* Uses singleton driver with proper cleanup
+* Batch processing with progress logging
+* Idempotent (uses MERGE)
+  **Done:** Existing data migrated to Neo4j.
+
+**F15e.2 – Verification**
+
+* Compare counts: PostgreSQL vs Neo4j
+* Verify vector index is populated
+* Test query returns results
+  **Done:** Migration verified.
+
+---
+
+### Phase 15f: Cleanup (Future)
+
+**F15f.1 – Remove pgvector Dependency**
+
+* Stop dual-write in `embeddings.py`
+* Remove embedding column from `DocumentChunk` model
+* Migration to drop column
+* Remove pgvector queries from codebase
+  **Pending:** After production validation.
+
+---
+
+### Deployment Steps
+
+```bash
+# 1. Run Neo4j schema init (creates vector index with filtering)
+docker compose exec backend python -m app.scripts.neo4j_init
+
+# 2. Migrate existing embeddings to Neo4j
+docker compose exec backend python -m app.scripts.migrate_embeddings_to_neo4j
+
+# 3. Restart backend to use new context builder
+docker compose restart backend
+
+# 4. Test a query
+curl -X POST http://localhost:8000/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_id": "...", "prompt": "What projects is John working on?"}'
+```
+
+---
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `app/neo4j_client.py` | **New** - Singleton driver with connection pooling |
+| `app/scripts/neo4j_init.py` | Vector index with `WITH [n.workspace_id, n.source_connection_id]` |
+| `app/processing/embeddings.py` | Uses `get_session()`, dual-write to Neo4j + pgvector |
+| `app/processing/graph.py` | Uses `get_session()`, stores source_connection_id |
+| `app/jobs/handlers.py` | Pass source_connection_id through UPSERT_GRAPH |
+| `app/processing/context_builder.py` | **Rewritten** - ENN pre-filter, modular functions, error handling |
+| `app/scripts/migrate_embeddings_to_neo4j.py` | Uses singleton driver, proper cleanup |
+
+---
+
+### References
+
+* [Neo4j Driver Best Practices](https://neo4j.com/blog/developer/neo4j-driver-best-practices/) - Singleton driver pattern
+* [Neo4j Vector Search](https://neo4j.com/developer/genai-ecosystem/vector-search/) - ENN pre-filtering vs ANN post-filtering
+* [Neo4j Cypher Manual - Vector Indexes](https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/vector-indexes/) - Index creation with filtering properties

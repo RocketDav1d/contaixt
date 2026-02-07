@@ -5,14 +5,15 @@ Every edge carries document_id + confidence for provenance.
 
 The graph is unified across the entire workspace (no vault filtering).
 This enables cross-vault knowledge discovery.
+
+Uses singleton driver from neo4j_client for connection pooling.
+Reference: https://neo4j.com/blog/developer/neo4j-driver-best-practices/
 """
 
 import logging
 import uuid
 
-from neo4j import AsyncGraphDatabase
-
-from app.config import settings
+from app.neo4j_client import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ LABEL_MAP = {
 async def upsert_entities_and_relations(
     workspace_id: uuid.UUID,
     document_id: uuid.UUID,
+    source_connection_id: uuid.UUID | None,
     entities: list[dict],
     relations: list[dict],
     entity_keys: dict[str, str],  # {entity_name: resolved_key}
@@ -35,25 +37,32 @@ async def upsert_entities_and_relations(
     Upsert entities as nodes and create MENTIONS edges from Document to Entity.
     Also creates inter-entity relations (WORKS_AT, HAS_CONTACT, etc.).
 
-    The graph is workspace-unified (no vault_id on nodes or edges).
+    The graph is workspace-unified (no vault_id on edges).
+    source_connection_id is stored on Document nodes to enable vault filtering during queries.
     """
     ws = str(workspace_id)
     doc_id = str(document_id)
+    conn_id = str(source_connection_id) if source_connection_id else None
 
-    driver = AsyncGraphDatabase.driver(
-        settings.neo4j_uri,
-        auth=(settings.neo4j_username, settings.neo4j_password),
-    )
-
-    async with driver.session(database=settings.neo4j_database) as session:
-        # Upsert Document node
-        await session.run(
-            """
-            MERGE (d:Document {workspace_id: $ws, key: $key})
-            SET d.document_id = $doc_id
-            """,
-            ws=ws, key=f"doc:{doc_id}", doc_id=doc_id,
-        )
+    async with get_session() as session:
+        # Upsert Document node with source_connection_id for vault filtering
+        if conn_id:
+            await session.run(
+                """
+                MERGE (d:Document {workspace_id: $ws, key: $key})
+                SET d.document_id = $doc_id,
+                    d.source_connection_id = $conn_id
+                """,
+                ws=ws, key=f"doc:{doc_id}", doc_id=doc_id, conn_id=conn_id,
+            )
+        else:
+            await session.run(
+                """
+                MERGE (d:Document {workspace_id: $ws, key: $key})
+                SET d.document_id = $doc_id
+                """,
+                ws=ws, key=f"doc:{doc_id}", doc_id=doc_id,
+            )
 
         # Upsert entity nodes + MENTIONS edges
         for ent in entities:
@@ -117,5 +126,4 @@ async def upsert_entities_and_relations(
                 evidence=rel.get("evidence", "")[:200],
             )
 
-    await driver.close()
     logger.info("Graph upsert done: %d entities, %d relations for doc=%s", len(entities), len(relations), doc_id)
