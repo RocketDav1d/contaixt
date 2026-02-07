@@ -13,12 +13,16 @@ ContentMetadata (Notion):
 
 import logging
 import re
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
 from app.nango.proxy import GOOGLE_FOLDER_MIME, SUPPORTED_MIME_TYPES
 
 logger = logging.getLogger(__name__)
+
+# Normalizer: (records, ...) -> list of ingest-ready dicts
+NormalizerFn = Callable[..., list[dict[str, Any]]]
 
 
 def _strip_html(html: str) -> str:
@@ -59,16 +63,18 @@ def normalize_gmail(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             except (ValueError, TypeError):
                 pass
 
-        docs.append({
-            "source_type": "gmail",
-            "external_id": external_id,
-            "url": f"https://mail.google.com/mail/u/0/#inbox/{thread_id}" if thread_id else None,
-            "title": subject,
-            "author_name": sender_name,
-            "author_email": sender_email,
-            "created_at": created_at,
-            "content_text": body,
-        })
+        docs.append(
+            {
+                "source_type": "gmail",
+                "external_id": external_id,
+                "url": f"https://mail.google.com/mail/u/0/#inbox/{thread_id}" if thread_id else None,
+                "title": subject,
+                "author_name": sender_name,
+                "author_email": sender_email,
+                "created_at": created_at,
+                "content_text": body,
+            }
+        )
     return docs
 
 
@@ -101,16 +107,18 @@ def normalize_notion(records: list[dict[str, Any]], content_map: dict[str, str] 
             except (ValueError, TypeError):
                 pass
 
-        docs.append({
-            "source_type": "notion",
-            "external_id": external_id,
-            "url": url,
-            "title": title,
-            "author_name": None,
-            "author_email": None,
-            "created_at": updated_at,
-            "content_text": content if content else title,
-        })
+        docs.append(
+            {
+                "source_type": "notion",
+                "external_id": external_id,
+                "url": url,
+                "title": title,
+                "author_name": None,
+                "author_email": None,
+                "created_at": updated_at,
+                "content_text": content if content else title,
+            }
+        )
     return docs
 
 

@@ -25,6 +25,7 @@ async def embed_and_store(workspace_id: uuid.UUID, document_id: uuid.UUID) -> in
 
     async with Session() as session:
         from sqlalchemy import select
+
         result = await session.execute(
             select(DocumentChunk)
             .where(
@@ -47,11 +48,9 @@ async def embed_and_store(workspace_id: uuid.UUID, document_id: uuid.UUID) -> in
         resp = await client.embeddings.create(input=texts, model=MODEL)
 
         async with Session() as session:
-            for chunk, emb_data in zip(batch, resp.data):
+            for chunk, emb_data in zip(batch, resp.data, strict=True):
                 await session.execute(
-                    update(DocumentChunk)
-                    .where(DocumentChunk.id == chunk.id)
-                    .values(embedding=emb_data.embedding)
+                    update(DocumentChunk).where(DocumentChunk.id == chunk.id).values(embedding=emb_data.embedding)
                 )
             await session.commit()
 

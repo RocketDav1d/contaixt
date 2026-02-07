@@ -20,24 +20,24 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
 
-class SourceType(str, enum.Enum):
+
+class SourceType(enum.StrEnum):
     gmail = "gmail"
     notion = "notion"
     google_drive = "google-drive"
 
 
-class ConnectionStatus(str, enum.Enum):
+class ConnectionStatus(enum.StrEnum):
     active = "active"
     inactive = "inactive"
     error = "error"
 
 
-class JobType(str, enum.Enum):
+class JobType(enum.StrEnum):
     PROCESS_DOCUMENT = "PROCESS_DOCUMENT"
     CHUNK_DOCUMENT = "CHUNK_DOCUMENT"
     EMBED_CHUNKS = "EMBED_CHUNKS"
@@ -45,7 +45,7 @@ class JobType(str, enum.Enum):
     UPSERT_GRAPH = "UPSERT_GRAPH"
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     queued = "queued"
     running = "running"
     done = "done"
@@ -55,6 +55,7 @@ class JobStatus(str, enum.Enum):
 # ---------------------------------------------------------------------------
 # Tables
 # ---------------------------------------------------------------------------
+
 
 class Workspace(Base):
     __tablename__ = "workspaces"
@@ -66,9 +67,7 @@ class Workspace(Base):
 
 class ContextVault(Base):
     __tablename__ = "context_vaults"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "name", name="uq_vault_workspace_name"),
-    )
+    __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_vault_workspace_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
@@ -158,9 +157,7 @@ class DocumentChunk(Base):
     source_connection_id.
     """
     __tablename__ = "document_chunks"
-    __table_args__ = (
-        Index("ix_chunk_workspace_doc", "workspace_id", "document_id"),
-    )
+    __table_args__ = (Index("ix_chunk_workspace_doc", "workspace_id", "document_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -175,9 +172,7 @@ class DocumentChunk(Base):
 
 class Job(Base):
     __tablename__ = "jobs"
-    __table_args__ = (
-        Index("ix_job_status_run_after", "status", "run_after"),
-    )
+    __table_args__ = (Index("ix_job_status_run_after", "status", "run_after"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)

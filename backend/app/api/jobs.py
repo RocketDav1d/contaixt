@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.db import get_async_session
-from app.models import Job, JobStatus, JobType
+from app.models import Job, JobStatus
 
 router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 
@@ -44,9 +44,7 @@ async def job_stats(workspace_id: uuid.UUID = Query(...)):
 
         # Totals by status
         totals = await session.execute(
-            select(Job.status, func.count())
-            .where(Job.workspace_id == workspace_id)
-            .group_by(Job.status)
+            select(Job.status, func.count()).where(Job.workspace_id == workspace_id).group_by(Job.status)
         )
         total_map = {str(r[0].value): r[1] for r in totals.fetchall()}
 

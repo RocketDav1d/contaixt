@@ -54,9 +54,7 @@ async def create_vault(body: VaultCreate):
         )
         await session.commit()
 
-        result = await session.execute(
-            select(ContextVault).where(ContextVault.id == vault_id)
-        )
+        result = await session.execute(select(ContextVault).where(ContextVault.id == vault_id))
         vault = result.scalar_one()
 
     return VaultOut(
@@ -74,9 +72,7 @@ async def list_vaults(workspace_id: uuid.UUID = Query(...)):
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(
-            select(ContextVault)
-            .where(ContextVault.workspace_id == workspace_id)
-            .order_by(ContextVault.created_at)
+            select(ContextVault).where(ContextVault.workspace_id == workspace_id).order_by(ContextVault.created_at)
         )
         rows = result.scalars().all()
 
@@ -97,9 +93,7 @@ async def list_vaults(workspace_id: uuid.UUID = Query(...)):
 async def update_vault(vault_id: uuid.UUID, body: VaultUpdate):
     Session = get_async_session()
     async with Session() as session:
-        result = await session.execute(
-            select(ContextVault).where(ContextVault.id == vault_id)
-        )
+        result = await session.execute(select(ContextVault).where(ContextVault.id == vault_id))
         vault = result.scalar_one_or_none()
         if not vault:
             raise HTTPException(status_code=404, detail="Vault not found")
@@ -111,14 +105,10 @@ async def update_vault(vault_id: uuid.UUID, body: VaultUpdate):
             updates["description"] = body.description
 
         if updates:
-            await session.execute(
-                update(ContextVault).where(ContextVault.id == vault_id).values(**updates)
-            )
+            await session.execute(update(ContextVault).where(ContextVault.id == vault_id).values(**updates))
             await session.commit()
 
-        result = await session.execute(
-            select(ContextVault).where(ContextVault.id == vault_id)
-        )
+        result = await session.execute(select(ContextVault).where(ContextVault.id == vault_id))
         vault = result.scalar_one()
 
     return VaultOut(
@@ -135,9 +125,7 @@ async def update_vault(vault_id: uuid.UUID, body: VaultUpdate):
 async def delete_vault(vault_id: uuid.UUID):
     Session = get_async_session()
     async with Session() as session:
-        result = await session.execute(
-            select(ContextVault).where(ContextVault.id == vault_id)
-        )
+        result = await session.execute(select(ContextVault).where(ContextVault.id == vault_id))
         vault = result.scalar_one_or_none()
         if not vault:
             raise HTTPException(status_code=404, detail="Vault not found")

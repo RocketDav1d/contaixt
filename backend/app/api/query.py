@@ -144,6 +144,7 @@ async def query(body: QueryRequest):
     )
 
     import json
+
     raw = resp.choices[0].message.content or "{}"
     try:
         llm_result = json.loads(raw)
@@ -160,17 +161,21 @@ async def query(body: QueryRequest):
     for cid in cited_ids:
         c = chunk_map.get(cid)
         if c:
-            citations.append(Citation(
-                url=c.get("doc_url"),
-                title=c.get("doc_title"),
-                quote=c["text"][:200],
-                document_id=c["document_id"],
-                chunk_id=cid,
-            ))
+            citations.append(
+                Citation(
+                    url=c.get("doc_url"),
+                    title=c.get("doc_title"),
+                    quote=c["text"][:200],
+                    document_id=c["document_id"],
+                    chunk_id=cid,
+                )
+            )
 
     logger.info(
         "Query answered: %d chunks, %d facts, %d citations",
-        len(chunks), len(facts), len(citations),
+        len(chunks),
+        len(facts),
+        len(citations),
     )
 
     return QueryResponse(

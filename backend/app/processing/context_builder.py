@@ -174,15 +174,17 @@ async def top_k_chunks(
 
     chunks = []
     for row in rows:
-        chunks.append({
-            "chunk_id": str(row.id),
-            "document_id": str(row.document_id),
-            "idx": row.idx,
-            "text": row.text,
-            "start_offset": row.start_offset,
-            "end_offset": row.end_offset,
-            "distance": row.distance,
-        })
+        chunks.append(
+            {
+                "chunk_id": str(row.id),
+                "document_id": str(row.document_id),
+                "idx": row.idx,
+                "text": row.text,
+                "start_offset": row.start_offset,
+                "end_offset": row.end_offset,
+                "distance": row.distance,
+            }
+        )
 
     return chunks
 
@@ -242,10 +244,7 @@ async def seed_entities(
         result = await session.execute(stmt)
         rows = result.fetchall()
 
-    return [
-        {"key": row.entity_key, "type": row.entity_type, "name": row.entity_name}
-        for row in rows
-    ]
+    return [{"key": row.entity_key, "type": row.entity_type, "name": row.entity_name} for row in rows]
 
 
 async def neo4j_traverse_simple(
@@ -273,7 +272,9 @@ async def neo4j_traverse_simple(
             """
             UNWIND $keys AS k
             MATCH (start {workspace_id: $ws, key: k})
-            MATCH (start)-[r*1..""" + str(min(depth, 4)) + """]->(end)
+            MATCH (start)-[r*1.."""
+            + str(min(depth, 4))
+            + """]->(end)
             WITH start, r, end
             UNWIND r AS rel
             WITH startNode(rel) AS a, endNode(rel) AS b, rel, type(rel) AS rel_type
@@ -295,22 +296,22 @@ async def neo4j_traverse_simple(
     await driver.close()
 
     for rec in records:
-        facts.append({
-            "from_name": rec.get("from_name", ""),
-            "from_key": rec.get("from_key", ""),
-            "relation": rec.get("rel_type", ""),
-            "to_name": rec.get("to_name", ""),
-            "to_key": rec.get("to_key", ""),
-            "document_id": rec.get("document_id", ""),
-            "evidence": rec.get("evidence", ""),
-        })
+        facts.append(
+            {
+                "from_name": rec.get("from_name", ""),
+                "from_key": rec.get("from_key", ""),
+                "relation": rec.get("rel_type", ""),
+                "to_name": rec.get("to_name", ""),
+                "to_key": rec.get("to_key", ""),
+                "document_id": rec.get("document_id", ""),
+                "evidence": rec.get("evidence", ""),
+            }
+        )
 
     return facts
 
 
-async def enrich_chunks_with_docs(
-    workspace_id: uuid.UUID, chunks: list[dict]
-) -> list[dict]:
+async def enrich_chunks_with_docs(workspace_id: uuid.UUID, chunks: list[dict]) -> list[dict]:
     """Add document metadata (title, url, source_type) to chunks."""
     doc_ids = list({uuid.UUID(c["document_id"]) for c in chunks})
     if not doc_ids:
@@ -319,12 +320,16 @@ async def enrich_chunks_with_docs(
     Session = get_async_session()
     async with Session() as session:
         result = await session.execute(
-            select(Document.id, Document.title, Document.url, Document.source_type)
-            .where(Document.workspace_id == workspace_id, Document.id.in_(doc_ids))
+            select(Document.id, Document.title, Document.url, Document.source_type).where(
+                Document.workspace_id == workspace_id, Document.id.in_(doc_ids)
+            )
         )
         rows = result.fetchall()
 
-    doc_map = {str(r.id): {"title": r.title, "url": r.url, "source_type": r.source_type.value if r.source_type else None} for r in rows}
+    doc_map = {
+        str(r.id): {"title": r.title, "url": r.url, "source_type": r.source_type.value if r.source_type else None}
+        for r in rows
+    }
 
     for chunk in chunks:
         doc_info = doc_map.get(chunk["document_id"], {})
