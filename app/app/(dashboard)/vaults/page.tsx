@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, MoreVertical, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, MoreVertical, Pencil, Trash2, Loader2, Search, FolderPlus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -14,6 +15,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -23,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Vault {
   id: string;
@@ -178,6 +190,9 @@ export default function VaultsPage() {
   const [createConnectionIds, setCreateConnectionIds] = useState<string[]>([]);
   const [formData, setFormData] = useState({ name: "", description: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [vaultToDelete, setVaultToDelete] = useState<Vault | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // TODO: Get workspace_id from context
   const workspaceId = "50926c1f-8132-4694-bd8a-b250c4a67089";
@@ -263,13 +278,17 @@ export default function VaultsPage() {
           );
         }
 
+        toast.success(`"${newVault.name}" created successfully`);
         setIsCreateOpen(false);
         setFormData({ name: "", description: "" });
         setCreateConnectionIds([]);
         fetchVaults();
+      } else {
+        toast.error("Failed to create vault");
       }
     } catch (error) {
       console.error("Error creating vault:", error);
+      toast.error("Failed to create vault");
     } finally {
       setIsSubmitting(false);
     }
@@ -293,35 +312,49 @@ export default function VaultsPage() {
       );
 
       if (response.ok) {
+        toast.success("Vault updated successfully");
         setIsEditOpen(false);
         setEditingVault(null);
         setFormData({ name: "", description: "" });
         fetchVaults();
+      } else {
+        toast.error("Failed to update vault");
       }
     } catch (error) {
       console.error("Error updating vault:", error);
+      toast.error("Failed to update vault");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDelete = async (vault: Vault) => {
-    if (!confirm(`Are you sure you want to delete "${vault.name}"?`)) return;
+  const openDeleteDialog = (vault: Vault) => {
+    setVaultToDelete(vault);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!vaultToDelete) return;
 
     try {
       const response = await fetch(
-        `http://localhost:8000/v1/vaults/${vault.id}`,
+        `http://localhost:8000/v1/vaults/${vaultToDelete.id}`,
         { method: "DELETE" }
       );
 
       if (response.ok) {
+        toast.success(`"${vaultToDelete.name}" deleted successfully`);
         fetchVaults();
       } else {
         const error = await response.json();
-        alert(error.detail || "Failed to delete vault");
+        toast.error(error.detail || "Failed to delete vault");
       }
     } catch (error) {
       console.error("Error deleting vault:", error);
+      toast.error("Failed to delete vault");
+    } finally {
+      setDeleteDialogOpen(false);
+      setVaultToDelete(null);
     }
   };
 
@@ -353,15 +386,17 @@ export default function VaultsPage() {
       );
 
       if (response.ok) {
+        toast.success("Connections updated successfully");
         setIsManageConnectionsOpen(false);
         setManagingVault(null);
         await fetchVaultConnections(managingVault.id);
       } else {
         const error = await response.json();
-        alert(error.detail || "Failed to update connections");
+        toast.error(error.detail || "Failed to update connections");
       }
     } catch (error) {
       console.error("Error updating connections:", error);
+      toast.error("Failed to update connections");
     } finally {
       setIsSubmitting(false);
     }
@@ -378,15 +413,21 @@ export default function VaultsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Context vaults</h1>
-          <p className="text-muted-foreground">
-            Organize your data into separate contexts
-          </p>
+          <h1 className="text-3xl font-bold">Context vaults</h1>
         </div>
-
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search vaults..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 w-[200px]"
+            />
+          </div>
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button className="bg-[#412bcf] hover:bg-[#3623a8]">
               <Plus className="mr-2 h-4 w-4" />
@@ -490,32 +531,58 @@ export default function VaultsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Vaults Grid */}
       {isLoading ? (
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i} className="p-4">
+              <div className="mb-4 flex justify-center">
+                <Skeleton className="h-32 w-40 rounded-xl" />
+              </div>
+              <div className="space-y-2 text-center">
+                <Skeleton className="h-5 w-24 mx-auto" />
+                <Skeleton className="h-4 w-16 mx-auto" />
+              </div>
+            </Card>
+          ))}
         </div>
       ) : vaults.length === 0 ? (
-        <div className="flex h-64 items-center justify-center text-muted-foreground">
+        <div className="flex h-64 items-center justify-center">
           <div className="text-center">
-            <p className="text-lg font-medium">No vaults yet</p>
-            <p className="text-sm">Create your first context vault to get started.</p>
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <FolderPlus className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="text-lg font-semibold">No vaults yet</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Create your first context vault to get started.</p>
+            <Button
+              className="mt-4 bg-[#412bcf] hover:bg-[#3623a8]"
+              onClick={() => setIsCreateOpen(true)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Create vault
+            </Button>
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {vaults.map((vault) => (
-            <VaultCard
-              key={vault.id}
-              vault={vault}
-              connections={vaultConnections[vault.id] || []}
-              onEdit={openEditDialog}
-              onDelete={handleDelete}
-              onManageConnections={openManageConnectionsDialog}
-            />
-          ))}
+          {vaults
+            .filter((vault) =>
+              vault.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              vault.description?.toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map((vault) => (
+              <VaultCard
+                key={vault.id}
+                vault={vault}
+                connections={vaultConnections[vault.id] || []}
+                onEdit={openEditDialog}
+                onDelete={openDeleteDialog}
+                onManageConnections={openManageConnectionsDialog}
+              />
+            ))}
         </div>
       )}
 
@@ -628,6 +695,27 @@ export default function VaultsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete vault</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{vaultToDelete?.name}&quot;? This action cannot be undone and all documents in this vault will be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

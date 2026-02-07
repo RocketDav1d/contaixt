@@ -3,11 +3,14 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useRef, useEffect, useState, useMemo } from "react";
-import { Send, ExternalLink, Loader2, StopCircle } from "lucide-react";
+import { Send, ExternalLink, Loader2, StopCircle, MessageSquare, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import ReactMarkdown from "react-markdown";
 
 export default function OverviewPage() {
@@ -78,38 +81,45 @@ export default function OverviewPage() {
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Overview</h1>
-        <p className="text-muted-foreground">
-          Ask questions about your knowledge base
-        </p>
+        <h1 className="text-3xl font-bold">Overview</h1>
       </div>
 
       {/* Chat Messages */}
       <Card className="flex-1 overflow-hidden">
         <ScrollArea className="h-full p-4">
           {messages.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <p className="text-lg font-medium">Welcome to Contaixt</p>
-                <p className="text-sm">
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center max-w-md">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                  <MessageSquare className="h-8 w-8 text-primary" />
+                </div>
+                <h2 className="text-xl font-semibold">Welcome to Contaixt</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
                   Start by asking a question about your connected data sources.
                 </p>
-                <div className="mt-4 space-y-2 text-sm">
-                  <p className="text-muted-foreground">Try asking:</p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <Badge variant="secondary">GraphRAG</Badge>
+                  <Badge variant="secondary">Knowledge Graph</Badge>
+                  <Badge variant="secondary">AI-Powered</Badge>
+                </div>
+                <div className="mt-6 space-y-3">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Try asking</p>
                   <div className="flex flex-wrap justify-center gap-2">
                     {[
                       "What do you know about me?",
                       "Summarize my recent emails",
                       "What projects am I working on?",
                     ].map((suggestion) => (
-                      <button
+                      <Button
                         key={suggestion}
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full text-xs"
                         onClick={() => handleSuggestionClick(suggestion)}
-                        className="rounded-full border px-3 py-1 text-xs hover:bg-accent"
                         disabled={isLoading}
                       >
                         {suggestion}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 </div>
@@ -120,10 +130,17 @@ export default function OverviewPage() {
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${
+                  className={`flex gap-3 ${
                     message.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
+                  {message.role === "assistant" && (
+                    <Avatar className="h-8 w-8 shrink-0">
+                      <AvatarFallback className="bg-primary text-primary-foreground">
+                        <Sparkles className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
                   <div
                     className={`max-w-[80%] rounded-lg px-4 py-3 ${
                       message.role === "user"
@@ -159,10 +176,21 @@ export default function OverviewPage() {
               ))}
 
               {isLoading && (
-                <div className="flex justify-start">
-                  <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Thinking...</span>
+                <div className="flex gap-3 justify-start">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarFallback className="bg-primary text-primary-foreground">
+                      <Sparkles className="h-4 w-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="space-y-2 rounded-lg bg-muted px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Thinking...</span>
+                    </div>
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-[250px]" />
+                      <Skeleton className="h-4 w-[200px]" />
+                    </div>
                   </div>
                 </div>
               )}

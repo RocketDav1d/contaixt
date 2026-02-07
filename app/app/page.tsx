@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Database,
   Layers,
@@ -10,6 +11,7 @@ import {
   MessageSquare,
   ArrowRight,
   Check,
+  Sparkles,
 } from "lucide-react";
 
 export default function Home() {
@@ -38,16 +40,27 @@ export default function Home() {
       {/* Hero Section */}
       <section className="border-b py-24">
         <div className="mx-auto max-w-6xl px-6 text-center">
+          <Badge className="mb-6 gap-1.5" variant="secondary">
+            <Sparkles className="h-3 w-3" />
+            Powered by GraphRAG
+          </Badge>
           <h1 className="mb-6 text-5xl font-bold tracking-tight sm:text-6xl">
             The Context Layer
             <br />
-            <span className="text-muted-foreground">for Your AI</span>
+            <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">for Your AI</span>
           </h1>
-          <p className="mx-auto mb-10 max-w-2xl text-xl text-muted-foreground">
+          <p className="mx-auto mb-8 max-w-2xl text-xl text-muted-foreground">
             Connect your data sources, build a unified knowledge graph, and give
             every AI application the context it needs. One vault, infinite
             possibilities.
           </p>
+          <div className="mb-8 flex flex-wrap justify-center gap-2">
+            <Badge variant="outline">Gmail</Badge>
+            <Badge variant="outline">Notion</Badge>
+            <Badge variant="outline">Google Drive</Badge>
+            <Badge variant="outline">Slack</Badge>
+            <Badge variant="outline">+ more</Badge>
+          </div>
           <div className="flex justify-center gap-4">
             <Button asChild size="lg">
               <Link href="/auth/sign-up">
@@ -86,12 +99,12 @@ export default function Home() {
 
           <div className="grid gap-8 md:grid-cols-3">
             {/* Step 1 */}
-            <Card className="relative p-8">
+            <Card className="relative p-8 transition-shadow hover:shadow-lg">
+              <Badge variant="secondary" className="absolute right-4 top-4">
+                1
+              </Badge>
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <Database className="h-6 w-6" />
-              </div>
-              <div className="mb-2 text-sm font-medium text-muted-foreground">
-                Step 1
               </div>
               <h3 className="mb-3 text-xl font-semibold">
                 Create a Context Vault
@@ -104,12 +117,12 @@ export default function Home() {
             </Card>
 
             {/* Step 2 */}
-            <Card className="relative p-8">
+            <Card className="relative p-8 transition-shadow hover:shadow-lg">
+              <Badge variant="secondary" className="absolute right-4 top-4">
+                2
+              </Badge>
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <Zap className="h-6 w-6" />
-              </div>
-              <div className="mb-2 text-sm font-medium text-muted-foreground">
-                Step 2
               </div>
               <h3 className="mb-3 text-xl font-semibold">
                 Connect Data Sources
@@ -122,12 +135,12 @@ export default function Home() {
             </Card>
 
             {/* Step 3 */}
-            <Card className="relative p-8">
+            <Card className="relative p-8 transition-shadow hover:shadow-lg">
+              <Badge variant="secondary" className="absolute right-4 top-4">
+                3
+              </Badge>
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <MessageSquare className="h-6 w-6" />
-              </div>
-              <div className="mb-2 text-sm font-medium text-muted-foreground">
-                Step 3
               </div>
               <h3 className="mb-3 text-xl font-semibold">Query with Context</h3>
               <p className="text-muted-foreground">
@@ -241,7 +254,8 @@ export default function Home() {
           </p>
 
           <div className="grid gap-8 md:grid-cols-2">
-            <Card className="p-6">
+            <Card className="p-6 transition-shadow hover:shadow-lg">
+              <Badge variant="outline" className="mb-3">AI Assistants</Badge>
               <h3 className="mb-2 text-lg font-semibold">Internal Chatbots</h3>
               <p className="text-muted-foreground">
                 Build AI assistants that actually know your company. Answer
@@ -250,7 +264,8 @@ export default function Home() {
               </p>
             </Card>
 
-            <Card className="p-6">
+            <Card className="p-6 transition-shadow hover:shadow-lg">
+              <Badge variant="outline" className="mb-3">Revenue</Badge>
               <h3 className="mb-2 text-lg font-semibold">Sales Intelligence</h3>
               <p className="text-muted-foreground">
                 Give your sales team instant access to customer history, past
@@ -258,7 +273,8 @@ export default function Home() {
               </p>
             </Card>
 
-            <Card className="p-6">
+            <Card className="p-6 transition-shadow hover:shadow-lg">
+              <Badge variant="outline" className="mb-3">Customer Success</Badge>
               <h3 className="mb-2 text-lg font-semibold">Support Automation</h3>
               <p className="text-muted-foreground">
                 Power support agents with product documentation, past tickets,
@@ -266,7 +282,8 @@ export default function Home() {
               </p>
             </Card>
 
-            <Card className="p-6">
+            <Card className="p-6 transition-shadow hover:shadow-lg">
+              <Badge variant="outline" className="mb-3">Enterprise Search</Badge>
               <h3 className="mb-2 text-lg font-semibold">Knowledge Search</h3>
               <p className="text-muted-foreground">
                 Replace keyword search with semantic understanding. Find

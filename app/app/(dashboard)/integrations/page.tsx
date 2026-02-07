@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Nango from "@nangohq/frontend";
-import { Plus, RefreshCw, Loader2, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Loader2, Trash2, Info, Plug } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -14,6 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -226,7 +229,7 @@ export default function IntegrationsPage() {
       });
     } catch (error) {
       console.error("Error starting connection:", error);
-      alert(
+      toast.error(
         error instanceof Error ? error.message : "Failed to start connection"
       );
       setIsConnecting(false);
@@ -247,16 +250,17 @@ export default function IntegrationsPage() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(
-          `Backfill complete: ${data.ingested} documents ingested from ${data.fetched} records`
+        toast.success(
+          `Sync complete: ${data.ingested} documents ingested from ${data.fetched} records`
         );
         fetchConnections();
       } else {
         const error = await response.json();
-        alert(error.detail || "Backfill failed");
+        toast.error(error.detail || "Sync failed");
       }
     } catch (error) {
       console.error("Error triggering backfill:", error);
+      toast.error("Failed to sync data");
     } finally {
       setSyncingId(null);
     }
@@ -274,13 +278,15 @@ export default function IntegrationsPage() {
       );
 
       if (response.ok) {
+        toast.success("Integration deleted successfully");
         fetchConnections();
       } else {
         const error = await response.json();
-        alert(error.detail || "Failed to delete connection");
+        toast.error(error.detail || "Failed to delete integration");
       }
     } catch (error) {
       console.error("Error deleting connection:", error);
+      toast.error("Failed to delete integration");
     } finally {
       setDeleteConnection(null);
     }
@@ -296,10 +302,7 @@ export default function IntegrationsPage() {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Integrations</h1>
-          <p className="text-muted-foreground">
-            Connect your data sources to Contaixt
-          </p>
+          <h1 className="text-3xl font-bold">Integrations</h1>
         </div>
 
         <Button
@@ -316,39 +319,53 @@ export default function IntegrationsPage() {
         </Button>
       </div>
 
-      {/* Info Card */}
-      <Card className="mb-6 border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950">
-        <p className="text-sm text-blue-800 dark:text-blue-200">
-          Click &quot;Add integration&quot; to connect Gmail, Notion, or other
-          data sources. After connecting, click &quot;Sync&quot; to import your
-          data.
-        </p>
-      </Card>
 
       {/* Connections Table */}
       <Card>
         {isLoading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="p-4 space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-8 w-8 rounded-lg" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-3 w-32" />
+                </div>
+                <Skeleton className="h-6 w-16" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-8 w-20" />
+              </div>
+            ))}
           </div>
         ) : connections.length === 0 ? (
-          <div className="flex h-64 items-center justify-center text-muted-foreground">
+          <div className="flex h-64 items-center justify-center">
             <div className="text-center">
-              <p className="text-lg font-medium">No integrations yet</p>
-              <p className="text-sm">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                <Plug className="h-8 w-8 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold">No integrations yet</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Add your first data source to get started.
               </p>
+              <Button
+                className="mt-4 bg-[#412bcf] hover:bg-[#3623a8]"
+                onClick={handleAddIntegration}
+                disabled={isConnecting}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add integration
+              </Button>
             </div>
           </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Data source</TableHead>
-                <TableHead>Vaults</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last sync</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[250px]">Data source</TableHead>
+                <TableHead className="w-[200px]">Vaults</TableHead>
+                <TableHead className="w-[100px]">Status</TableHead>
+                <TableHead className="w-[120px]">Last sync</TableHead>
+                <TableHead className="w-[150px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -406,7 +423,7 @@ export default function IntegrationsPage() {
                         {connection.status === "active" ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="text-sm text-muted-foreground">
                       {formatRelativeTime(connection.updated_at)}
                     </TableCell>
                     <TableCell className="text-right">

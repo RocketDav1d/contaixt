@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Separator } from "@/components/ui/separator";
+import { DynamicBreadcrumb } from "@/components/dynamic-breadcrumb";
 
 export default async function DashboardLayout({
   children,
@@ -26,7 +27,13 @@ export default async function DashboardLayout({
   };
 
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "19rem",
+        } as React.CSSProperties
+      }
+    >
       <AppSidebar
         user={{
           email: user.email,
@@ -36,11 +43,12 @@ export default async function DashboardLayout({
         workspace={workspace}
       />
       <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+        <header className="flex h-16 shrink-0 items-center gap-2 px-4">
           <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-2 h-4" />
+          <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
+          <DynamicBreadcrumb />
         </header>
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex flex-1 flex-col gap-4 p-6 overflow-auto">
           {children}
         </main>
       </SidebarInset>
