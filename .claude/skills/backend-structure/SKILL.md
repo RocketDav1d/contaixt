@@ -63,6 +63,23 @@ flowchart LR
 
   API -->|"Return answer + citations (doc_url, chunk quote)"| Client
 
+  %% ========== Project Graph Layer (Phase 16) ==========
+  subgraph ProjectGraph["Project Graph Layer"]
+    PRJ_Node[("PRJ_Node / PRJ_REL (Neo4j)")]:::db
+    ChatAPI["Chat API"]:::svc
+    SyncAPI["Sync API"]:::svc
+  end
+
+  Client -->|"POST /projects/{id}/chat/messages"| ChatAPI
+  ChatAPI -->|"Read UKL context (read-only)"| Neo4j
+  ChatAPI -->|"Write PRJ nodes/edges"| PRJ_Node
+  ChatAPI -->|"LLM generates graph_delta"| OpenAI
+
+  Client -->|"POST /projects/{id}/sync"| SyncAPI
+  SyncAPI -->|"Entity resolution"| PG
+  SyncAPI -->|"Create UKL entities + SYNCED_AS edges"| Neo4j
+  PRJ_Node -.->|"Explicit sync"| Neo4j
+
   %% ========== Styles ==========
   classDef svc fill:#eef,stroke:#333,stroke-width:1px;
   classDef db fill:#efe,stroke:#333,stroke-width:1px;

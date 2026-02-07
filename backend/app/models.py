@@ -210,3 +210,109 @@ class EntityMention(Base):
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_name: Mapped[str] = mapped_column(String(512), nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
+
+
+# ---------------------------------------------------------------------------
+# Project Graph (Phase 16)
+# ---------------------------------------------------------------------------
+
+
+class ProjectStatus(enum.StrEnum):
+    active = "active"
+    archived = "archived"
+
+
+class ChatRole(enum.StrEnum):
+    user = "user"
+    assistant = "assistant"
+    system = "system"
+
+
+class Project(Base):
+    """Project for isolated reasoning and exploration.
+
+    Projects have their own graph (PRJ_Node/PRJ_REL in Neo4j) that is
+    separate from the Unified Knowledge Layer (UKL). Insights can be
+    explicitly synced from PRJ to UKL.
+    """
+    __tablename__ = "projects"
+    __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_project_workspace_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[ProjectStatus] = mapped_column(
+        Enum(ProjectStatus, name="project_status_enum"), default=ProjectStatus.active, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProjectVaultAssociation(Base):
+    """Join table for many-to-many relationship between projects and vaults.
+
+    Projects select which vaults' documents are available as context.
+    """
+    __tablename__ = "project_vault_associations"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    vault_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatSession(Base):
+    """Chat session within a project.
+
+    Sessions group related messages and can build up the project graph
+    over multiple turns.
+    """
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ChatMessage(Base):
+    """Chat message within a session.
+
+    Messages can include graph_delta_json which describes nodes and edges
+    to add to the project graph (extracted inline by the LLM).
+    """
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    role: Mapped[ChatRole] = mapped_column(
+        Enum(ChatRole, name="chat_role_enum"), nullable=False
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    context_vault_ids_used: Mapped[list | None] = mapped_column(JSON)  # List of vault IDs queried
+    graph_delta_json: Mapped[dict | None] = mapped_column(JSON)  # {nodes: [...], edges: [...]}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProjectSyncLog(Base):
+    """Audit log for syncs from project graph to UKL.
+
+    Tracks which PRJ nodes were synced and what UKL entities were created/matched.
+    """
+    __tablename__ = "project_sync_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    synced_node_keys: Mapped[list | None] = mapped_column(JSON)  # PRJ node keys that were synced
+    synced_edge_keys: Mapped[list | None] = mapped_column(JSON)  # PRJ edge keys that were synced
+    ukl_entity_keys: Mapped[list | None] = mapped_column(JSON)  # Resulting UKL entity keys
+    synced_by: Mapped[str | None] = mapped_column(String(255))  # User identifier
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

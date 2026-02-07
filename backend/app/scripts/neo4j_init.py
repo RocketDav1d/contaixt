@@ -82,6 +82,28 @@ STATEMENTS = [
         `vector.similarity_function`: 'cosine'
     }}
     """,
+    # --- PRJ_Node: Project Graph nodes (isolated from UKL) ---
+    # Phase 16: Project Graph Layer
+    """
+    CREATE CONSTRAINT prj_node_workspace_project_key IF NOT EXISTS
+    FOR (n:PRJ_Node) REQUIRE (n.workspace_id, n.project_id, n.key) IS UNIQUE
+    """,
+    """
+    CREATE INDEX prj_node_project_idx IF NOT EXISTS
+    FOR (n:PRJ_Node) ON (n.project_id)
+    """,
+    """
+    CREATE INDEX prj_node_workspace_idx IF NOT EXISTS
+    FOR (n:PRJ_Node) ON (n.workspace_id)
+    """,
+    """
+    CREATE INDEX prj_node_type_idx IF NOT EXISTS
+    FOR (n:PRJ_Node) ON (n.node_type)
+    """,
+    """
+    CREATE INDEX prj_node_status_idx IF NOT EXISTS
+    FOR (n:PRJ_Node) ON (n.status)
+    """,
 ]
 
 

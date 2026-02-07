@@ -1111,3 +1111,282 @@ curl -X POST http://localhost:8000/v1/query \
 * [Neo4j Driver Best Practices](https://neo4j.com/blog/developer/neo4j-driver-best-practices/) - Singleton driver pattern
 * [Neo4j Vector Search](https://neo4j.com/developer/genai-ecosystem/vector-search/) - ENN pre-filtering vs ANN post-filtering
 * [Neo4j Cypher Manual - Vector Indexes](https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/vector-indexes/) - Index creation with filtering properties
+
+---
+
+## 16) Project Graph Layer
+
+> Isolated, mutable graph per project for reasoning and exploration. Enables a feedback loop where chat insights can be explicitly synced back to the Unified Knowledge Layer (UKL).
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Knowledge Flow                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   UKL (Read-only Context)                                               │
+│   ┌─────────────────────────────────────────────────────────────────┐  │
+│   │  Person, Company, Topic, Document, Chunk                         │  │
+│   │  (Never mutated during chat)                                     │  │
+│   └─────────────────────────────────────────────────────────────────┘  │
+│              │                                           ▲              │
+│              │ Context for Chat                          │ Explicit     │
+│              ▼                                           │ Sync         │
+│   ┌─────────────────────────────────────────────────────────────────┐  │
+│   │  Project Graph (PRJ_Node, PRJ_REL)                               │  │
+│   │  - Mutable during chat                                           │  │
+│   │  - Isolated per project                                          │  │
+│   │  - LLM extracts graph_delta inline                               │  │
+│   └─────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+**1. Strict Isolation (Infection Control)**
+
+| Rule | Implementation |
+|------|----------------|
+| UKL never mutated during chat | API layer + separate modules |
+| PRJ Graph isolated | Own Neo4j labels: `:PRJ_Node`, `:PRJ_REL` |
+| Sync only explicit | Dedicated `/sync` endpoint |
+| Traceability | `SYNCED_AS` relationship + audit log |
+
+**2. Label Strategy**
+
+```
+UKL Labels (existing):     PRJ Labels (new):
+- Person                   - PRJ_Node (with node_type property)
+- Company
+- Topic
+- Document
+- Chunk
+
+UKL Relationships:         PRJ Relationships:
+- MENTIONS                 - PRJ_REL (generic with rel_type property)
+- WORKS_AT                 - SYNCED_AS (PRJ_Node → UKL Entity)
+- PART_OF                  - REFS_UKL (read-only reference to UKL)
+```
+
+**3. LLM Inline Graph Extraction**
+
+Chat responses include structured `graph_delta`:
+```json
+{
+  "answer": "Based on my analysis...",
+  "graph_delta": {
+    "nodes": [{"key": "auto", "node_type": "person", "name": "John", "properties": {}}],
+    "edges": [{"from_key": "...", "to_key": "...", "rel_type": "WORKS_AT"}],
+    "ukl_refs": [{"prj_key": "...", "ukl_key": "person:email:john@acme.com"}]
+  }
+}
+```
+
+---
+
+### Phase 16a: PostgreSQL Schema
+
+**F16a.1 – New Models**
+
+* `projects(id, workspace_id, name, description, status, created_at, updated_at)`
+* `project_vault_associations(project_id, vault_id)` – M:N join
+* `chat_sessions(id, project_id, workspace_id, title, created_at, updated_at)`
+* `chat_messages(id, session_id, workspace_id, role, content, context_vault_ids_used, graph_delta_json, created_at)`
+* `project_sync_log(id, project_id, workspace_id, synced_node_keys, synced_edge_keys, ukl_entity_keys, synced_by, created_at)`
+  **Done:** Models in `app/models.py`, migration `006_projects_and_chat.py`.
+
+---
+
+### Phase 16b: Neo4j Schema
+
+**F16b.1 – PRJ_Node Constraints & Indexes**
+
+```cypher
+-- Uniqueness: (workspace_id, project_id, key)
+CREATE CONSTRAINT prj_node_workspace_project_key IF NOT EXISTS
+FOR (n:PRJ_Node) REQUIRE (n.workspace_id, n.project_id, n.key) IS UNIQUE
+
+-- Performance indexes
+CREATE INDEX prj_node_project_idx IF NOT EXISTS FOR (n:PRJ_Node) ON (n.project_id)
+CREATE INDEX prj_node_workspace_idx IF NOT EXISTS FOR (n:PRJ_Node) ON (n.workspace_id)
+CREATE INDEX prj_node_type_idx IF NOT EXISTS FOR (n:PRJ_Node) ON (n.node_type)
+CREATE INDEX prj_node_status_idx IF NOT EXISTS FOR (n:PRJ_Node) ON (n.status)
+```
+**Done:** Added to `app/scripts/neo4j_init.py`.
+
+**F16b.2 – PRJ_Node Properties**
+
+```
+PRJ_Node {
+    workspace_id: STRING
+    project_id: STRING
+    key: STRING              // e.g., "prj:person:john-doe"
+    node_type: STRING        // person, company, topic, claim, etc.
+    name: STRING
+    properties: STRING       // JSON-serialized flexible properties
+    ukl_ref: STRING | NULL   // Optional read-only UKL entity key
+    source_message_id: STRING
+    status: STRING           // draft, synced
+    created_at: DATETIME
+    updated_at: DATETIME
+}
+```
+
+---
+
+### Phase 16c: Project CRUD API
+
+**F16c.1 – Project Endpoints**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/projects` | Create project with vault associations |
+| GET | `/v1/projects?workspace_id=` | List projects |
+| GET | `/v1/projects/{id}` | Get single project |
+| PATCH | `/v1/projects/{id}` | Update project |
+| DELETE | `/v1/projects/{id}` | Delete project + graph |
+
+**Done:** `app/api/projects.py` with full CRUD.
+
+---
+
+### Phase 16d: Project Graph Operations
+
+**F16d.1 – Graph Module**
+
+* New module `app/processing/project_graph.py`
+* GUARDRAIL: Only writes to `:PRJ_Node` and `:PRJ_REL` labels
+* Functions:
+  * `write_prj_node()` – Create/update PRJ_Node
+  * `write_prj_edge()` – Create/update PRJ_REL
+  * `create_ukl_reference()` – Create REFS_UKL edge
+  * `get_project_graph()` – Get all nodes/edges for UI
+  * `delete_prj_node()` – Delete node and edges
+  * `delete_project_graph()` – Delete all nodes/edges for project
+  **Done:** Full CRUD for project graph nodes and edges.
+
+**F16d.2 – Graph Endpoints**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/projects/{id}/graph` | Get graph for visualization |
+| POST | `/v1/projects/{id}/graph/update` | Add nodes/edges to graph |
+| DELETE | `/v1/projects/{id}/graph/nodes/{key}` | Delete a node |
+
+**Done:** Graph endpoints in `app/api/projects.py`.
+
+---
+
+### Phase 16e: Chat API
+
+**F16e.1 – Chat Session Endpoints**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/projects/{id}/chat/sessions` | Create chat session |
+| GET | `/v1/projects/{id}/chat/sessions` | List sessions |
+| GET | `/v1/projects/{id}/chat/sessions/{sid}` | Get single session |
+| DELETE | `/v1/projects/{id}/chat/sessions/{sid}` | Delete session + messages |
+
+**F16e.2 – Chat Message Endpoints**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/projects/{id}/chat/sessions/{sid}/messages` | Add message with graph_delta |
+| GET | `/v1/projects/{id}/chat/sessions/{sid}/messages` | List messages |
+
+* Messages with `graph_delta` automatically create PRJ nodes/edges
+  **Done:** `app/api/chat.py` with full chat support.
+
+---
+
+### Phase 16f: Sync to UKL
+
+**F16f.1 – Sync Module**
+
+* New module `app/processing/project_sync.py`
+* Uses existing `resolve_entity_key()` for entity resolution
+* Functions:
+  * `sync_prj_nodes_to_ukl()` – Sync selected nodes
+  * `sync_prj_edges_to_ukl()` – Sync selected edges
+  * `get_sync_preview()` – Preview what would sync
+  * `get_sync_log()` – Get audit log
+  **Done:** Sync logic with entity resolution and audit logging.
+
+**F16f.2 – Sync Endpoints**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/projects/{id}/sync` | Sync nodes/edges to UKL |
+| POST | `/v1/projects/{id}/sync/preview` | Preview sync results |
+| GET | `/v1/projects/{id}/sync/log` | Get sync audit log |
+
+**F16f.3 – Sync Rules**
+
+* **Never overwrite**: Existing UKL data is not modified (ON CREATE only)
+* **Entity resolution**: Uses `resolve_entity_key()` for stable keys
+* **Traceability**: Creates `SYNCED_AS` edge from PRJ_Node to UKL entity
+* **Audit log**: Every sync recorded in PostgreSQL
+* **Status update**: PRJ_Node status changes from 'draft' to 'synced'
+  **Done:** Sync endpoints in `app/api/projects.py`.
+
+---
+
+### Files Created/Modified
+
+| File | Changes |
+|------|---------|
+| `app/models.py` | Added Project, ProjectVaultAssociation, ChatSession, ChatMessage, ProjectSyncLog |
+| `alembic/versions/006_projects_and_chat.py` | **New** - Migration for all new tables |
+| `app/scripts/neo4j_init.py` | Added PRJ_Node constraints and indexes |
+| `app/api/projects.py` | **New** - Project CRUD + Graph + Sync endpoints (668 lines) |
+| `app/api/chat.py` | **New** - Chat sessions and messages API (377 lines) |
+| `app/processing/project_graph.py` | **New** - PRJ_Node/PRJ_REL operations (458 lines) |
+| `app/processing/project_sync.py` | **New** - Sync to UKL with entity resolution (555 lines) |
+| `app/main.py` | Registered projects_router and chat_router |
+
+---
+
+### Deployment Steps
+
+```bash
+# 1. Run database migration
+docker compose exec api alembic upgrade head
+
+# 2. Run Neo4j schema init (creates PRJ_Node constraints)
+docker compose exec api python -m app.scripts.neo4j_init
+
+# 3. Restart API to pick up new routes
+docker compose restart api
+
+# 4. Test project creation
+curl -X POST http://localhost:8000/v1/projects \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_id": "...", "name": "My Project"}'
+
+# 5. Test graph operations
+curl -X POST http://localhost:8000/v1/projects/{id}/graph/update \
+  -H "Content-Type: application/json" \
+  -d '{"nodes": [{"key": "auto", "node_type": "person", "name": "John"}]}'
+
+# 6. Test sync to UKL
+curl -X POST http://localhost:8000/v1/projects/{id}/sync \
+  -H "Content-Type: application/json" \
+  -d '{"node_keys": ["prj:person:..."]}'
+```
+
+---
+
+### Verification Checklist
+
+- [ ] Project CRUD works
+- [ ] Graph nodes/edges can be created
+- [ ] Chat messages with graph_delta create nodes
+- [ ] Sync preview shows correct actions
+- [ ] Sync creates UKL entities (Person/Company/Topic)
+- [ ] SYNCED_AS edges exist after sync
+- [ ] Sync log entries recorded
+- [ ] PRJ_Node status changes to 'synced' after sync
+- [ ] UKL entities are not modified during chat (isolation)
