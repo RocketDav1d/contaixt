@@ -45,12 +45,12 @@ export default async function DashboardLayout({
           workspace={workspace}
         />
         <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 px-4">
-            <SidebarTrigger className="-ml-1" />
+          <header className="flex h-16 shrink-0 items-center gap-2 px-8">
+            <SidebarTrigger />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
             <DynamicBreadcrumb />
           </header>
-          <main className="flex flex-1 flex-col gap-4 p-6 overflow-auto">
+          <main className="flex flex-1 flex-col gap-4 px-8 pb-6 overflow-auto">
             {children}
           </main>
         </SidebarInset>
